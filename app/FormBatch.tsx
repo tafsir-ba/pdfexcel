@@ -1503,7 +1503,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                             ? ` · updated ${new Date(cloudSummary.updatedAt).toLocaleString()}`
                             : ""
                         }`
-                      : "Upload a PDF and CSV — they sync automatically while you are signed in."}
+                      : "No PDF/CSV saved on this account yet. Upload them below — they sync while you stay signed in."}
                   </p>
                 </div>
                 <div className="my-files-actions">
@@ -1543,7 +1543,11 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                   ))}
                 </ul>
               ) : (
-                <p className="my-files-empty">Generated ZIPs appear here after you download a batch, for re-access during your paid period.</p>
+                <p className="my-files-empty">
+                  No account ZIPs yet. Batches you generated earlier only downloaded to this computer’s Downloads folder
+                  (look for <code>pdf-batch-complete.zip</code>). Generate again while signed in — the ZIP will appear
+                  here for re-download during your paid period.
+                </p>
               )}
             </div>
           ) : null}
