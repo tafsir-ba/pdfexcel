@@ -80,7 +80,7 @@ async function bootstrapPricing(db: AppDb) {
   const existing = await db.select({ id: pricingPlans.id }).from(pricingPlans).limit(1);
   if (existing.length) return;
   await db.insert(pricingPlans).values({
-    name: "PDF Mail Merge 30-day access",
+    name: "PDF Batch 30-day access",
     amountCents: 1900,
     currency: "usd",
     durationDays: 30,
@@ -286,7 +286,7 @@ async function seedDemoIfRequested(db: AppDb) {
     pdfsGenerated: 3,
     templateFilenameSanitized: "invoice-template.pdf",
     csvFilenameSanitized: "recipients.csv",
-    zipFilenameSanitized: "pdf-mail-merge-preview.zip",
+    zipFilenameSanitized: "pdf-batch-preview.zip",
     success: true,
   });
   await db.insert(claimCases).values({

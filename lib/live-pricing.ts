@@ -11,13 +11,13 @@ export type LivePlan = {
 };
 
 export const DEFAULT_LIVE_PLAN: LivePlan = {
-  name: "PDF Mail Merge 30-day access",
+  name: "PDF Batch 30-day access",
   amountCents: 1900,
   currency: "usd",
   durationDays: 30,
   freeGenerationLimit: 3,
   productKey: "formbatch_30_day_access",
-  description: "Unlimited spreadsheet-to-PDF mail merge batches on one device for 30 days",
+  description: "Unlimited PDF Batch form-filling on one account for 30 days",
 };
 
 export async function resolveLivePlan(): Promise<LivePlan> {
@@ -37,7 +37,7 @@ export async function resolveLivePlan(): Promise<LivePlan> {
         durationDays,
         freeGenerationLimit: plan.freeGenerationLimit ?? DEFAULT_LIVE_PLAN.freeGenerationLimit,
         productKey: plan.productKey,
-        description: `Unlimited spreadsheet-to-PDF mail merge batches on one device for ${durationDays} days`,
+        description: `Unlimited PDF Batch form-filling on one account for ${durationDays} days`,
       };
     });
   } catch {

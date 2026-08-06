@@ -19,7 +19,7 @@ export default function AdminPricingPage() {
   const router = useRouter();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [form, setForm] = useState({
-    name: "PDF Mail Merge 30-day access",
+    name: "PDF Batch 30-day access",
     amountCents: 1900,
     currency: "usd",
     durationDays: 30,

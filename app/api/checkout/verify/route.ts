@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (session.payment_status !== "paid") {
-    return NextResponse.json({ paid: false, error: "No completed PDF Mail Merge payment was found." }, { status: 402 });
+    return NextResponse.json({ paid: false, error: "No completed PDF Batch payment was found." }, { status: 402 });
   }
 
   const productKey = session.metadata?.product || DEFAULT_PRODUCT;
@@ -73,13 +73,13 @@ export async function GET(request: NextRequest) {
   }
 
   if (!productAllowed) {
-    return NextResponse.json({ paid: false, error: "No completed PDF Mail Merge payment was found." }, { status: 402 });
+    return NextResponse.json({ paid: false, error: "No completed PDF Batch payment was found." }, { status: 402 });
   }
 
   const expiresAt = createdAt + durationDays * 24 * 60 * 60 * 1000;
   if (expiresAt <= Date.now()) {
     return NextResponse.json(
-      { paid: false, error: "This PDF Mail Merge payment has expired." },
+      { paid: false, error: "This PDF Batch payment has expired." },
       { status: 402 },
     );
   }

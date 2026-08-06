@@ -10,18 +10,18 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase,
-    title: "PDF Mail Merge from Excel or CSV",
-    description: "Mail merge Excel or CSV data into fillable PDF forms. Generate individually named PDFs privately in your browser — no Acrobat, and your files are never uploaded.",
+    title: "PDF Batch — Fill PDF forms from Excel or CSV",
+    description: "Batch-fill PDF forms from Excel or CSV. Upload one form and one spreadsheet, then download one completed PDF per row — privately in your browser, with no uploads.",
     openGraph: {
-      title: "PDF Mail Merge from Excel or CSV",
-      description: "Turn spreadsheet rows into individually named PDFs. No Acrobat, and files stay in your browser.",
+      title: "PDF Batch — Fill PDF forms from Excel or CSV",
+      description: "One PDF form + one spreadsheet → one filled PDF per row. No Acrobat, and files stay in your browser.",
       type: "website",
-      images: [{ url: "/og.png", width: 1717, height: 916, alt: "PDF Mail Merge turns Excel or CSV rows into individual PDFs" }],
+      images: [{ url: "/og.png", width: 1717, height: 916, alt: "PDF Batch turns Excel or CSV rows into individual filled PDFs" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "PDF Mail Merge from Excel or CSV",
-      description: "Turn spreadsheet rows into individually named PDFs. No Acrobat or file uploads.",
+      title: "PDF Batch — Fill PDF forms from Excel or CSV",
+      description: "One PDF form + one spreadsheet → one filled PDF per row. No Acrobat or file uploads.",
       images: ["/og.png"],
     },
   };
