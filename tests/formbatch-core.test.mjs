@@ -442,10 +442,14 @@ test("placement geometry separates overlaps and supports non-overlapping resize"
   const {
     clampToPage,
     findOpenPlacement,
+    movePlacementFree,
+    movePlacementInteractive,
     movePlacementWithoutOverlap,
     placementsOverlap,
     resizePlacementWithoutOverlap,
     resolveFieldOverlaps,
+    separateFromOthers,
+    softSnapPlacement,
   } = await import("../app/placement-geometry.ts");
 
   const page = { width: 600, height: 800 };
@@ -501,4 +505,29 @@ test("placement geometry separates overlaps and supports non-overlapping resize"
     placementsOverlap(restoredOverlap[0].placement, restoredOverlap[1].placement),
     false,
   );
+
+  // Free move tracks cursor 1:1 without collision teleport.
+  const free = movePlacementFree(a, 40, -15, page);
+  assert.equal(free.x, 140);
+  assert.equal(free.y, 185);
+
+  // MTV separation nudges by overlap depth instead of jumping past the whole blocker.
+  const blocker = { pageIndex: 0, x: 200, y: 200, width: 100, height: 20 };
+  const overlapping = { pageIndex: 0, x: 210, y: 205, width: 50, height: 12 };
+  const nudged = separateFromOthers(overlapping, [blocker], page);
+  assert.equal(placementsOverlap(nudged, blocker), false);
+  assert.ok(
+    Math.abs(nudged.x - overlapping.x) < blocker.width,
+    `expected small MTV nudge, got dx=${nudged.x - overlapping.x}`,
+  );
+
+  // Soft snap aligns left edges within threshold.
+  const nearAlign = { pageIndex: 0, x: 102, y: 50, width: 80, height: 12 };
+  const snapTarget = { pageIndex: 0, x: 100, y: 80, width: 90, height: 12 };
+  const snapped = softSnapPlacement(nearAlign, [snapTarget], page, 3);
+  assert.equal(snapped.placement.x, 100);
+  assert.ok(snapped.guides.x.includes(100));
+
+  const interactive = movePlacementInteractive(a, 0, 0, [snapTarget], page);
+  assert.equal(interactive.placement.pageIndex, 0);
 });

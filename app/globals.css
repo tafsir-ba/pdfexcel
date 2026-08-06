@@ -333,7 +333,17 @@ h1, h2, h3, p { margin-top: 0; }
 .placement-add-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--green-dark); font-size: 12px; font-weight: 700; cursor: pointer; }
 .placement-add-btn:hover:not(:disabled) { background: var(--green-soft); border-color: #9ed5bf; }
 .placement-add-btn:disabled { opacity: 0.45; cursor: default; }
-.placement-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; overflow: auto; border-radius: 10px; box-shadow: 0 10px 30px rgba(20, 35, 28, 0.12); background: #fff; }
+.placement-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; overflow: auto; border-radius: 10px; box-shadow: 0 10px 30px rgba(20, 35, 28, 0.12); background: #fff; touch-action: none; }
+.placement-snap-guide {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  background: rgba(24, 92, 68, 0.55);
+}
+.placement-snap-guide.vertical { top: 0; bottom: 0; width: 1px; }
+.placement-snap-guide.horizontal { left: 0; right: 0; height: 1px; }
+.placement-anchor.dragging { z-index: 5; cursor: grabbing; }
+.placement-anchor.dragging .placement-fill-outline { box-shadow: 0 0 0 1px rgba(24, 92, 68, 0.35); }
 /* Keep bitmap size === layout size so absolute field boxes stay aligned. */
 .placement-canvas { display: block; width: auto; max-width: none; height: auto; }
 .placement-anchor { position: absolute; z-index: 1; margin: 0; padding: 0; cursor: grab; touch-action: none; box-sizing: border-box; }

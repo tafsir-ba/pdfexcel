@@ -9,8 +9,9 @@ import {
 } from "react";
 import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import {
-  movePlacementWithoutOverlap,
+  movePlacementInteractive,
   resizePlacementWithoutOverlap,
+  separateFromOthers,
   type ResizeEdge,
 } from "./placement-geometry";
 import { CHECKBOX_ALWAYS, type StaticPlacement } from "./static-pdf";
@@ -77,6 +78,16 @@ export function PlacementPreview({
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const interactionRef = useRef<Interaction | null>(null);
+  /** Live drag/resize box — avoids parent re-render jumps and 1:1 cursor tracking. */
+  const [livePlacement, setLivePlacement] = useState<StaticPlacement | null>(null);
+  const [liveName, setLiveName] = useState<string | null>(null);
+  const [snapGuides, setSnapGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
+  const rafRef = useRef<number | null>(null);
+  const pendingLiveRef = useRef<{
+    name: string;
+    placement: StaticPlacement;
+    guides: { x: number[]; y: number[] };
+  } | null>(null);
 
   const safePageIndex = Math.min(pageIndex, Math.max(0, pageCount - 1));
   const pageReady = renderedPageIndex === safePageIndex && pageSize.height > 0;
@@ -191,6 +202,9 @@ export function PlacementPreview({
     event.stopPropagation();
     onSelectField(field.name);
     setDragging(false);
+    setLiveName(field.name);
+    setLivePlacement({ ...field.placement });
+    setSnapGuides({ x: [], y: [] });
     interactionRef.current = {
       kind: "move",
       name: field.name,
@@ -211,6 +225,9 @@ export function PlacementPreview({
     event.stopPropagation();
     onSelectField(field.name);
     setDragging(true);
+    setLiveName(field.name);
+    setLivePlacement({ ...field.placement });
+    setSnapGuides({ x: [], y: [] });
     interactionRef.current = {
       kind: "resize",
       name: field.name,
@@ -221,6 +238,23 @@ export function PlacementPreview({
       moved: true,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const scheduleLive = (
+    name: string,
+    placement: StaticPlacement,
+    guides: { x: number[]; y: number[] } = { x: [], y: [] },
+  ) => {
+    pendingLiveRef.current = { name, placement, guides };
+    if (rafRef.current != null) return;
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      const pending = pendingLiveRef.current;
+      if (!pending) return;
+      setLiveName(pending.name);
+      setLivePlacement(pending.placement);
+      setSnapGuides(pending.guides);
+    });
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
@@ -236,41 +270,63 @@ export function PlacementPreview({
         interaction.moved = true;
         setDragging(true);
       }
-      onMoveField(
-        interaction.name,
-        movePlacementWithoutOverlap(
-          interaction.startPlacement,
-          dx,
-          dyPdf,
-          othersFor(interaction.name),
-          pageSize,
-        ),
-      );
-      return;
-    }
-
-    onMoveField(
-      interaction.name,
-      resizePlacementWithoutOverlap(
+      const { placement, guides } = movePlacementInteractive(
         interaction.startPlacement,
-        interaction.edge,
         dx,
         dyPdf,
         othersFor(interaction.name),
         pageSize,
-      ),
+      );
+      scheduleLive(interaction.name, placement, guides);
+      return;
+    }
+
+    const resized = resizePlacementWithoutOverlap(
+      interaction.startPlacement,
+      interaction.edge,
+      dx,
+      dyPdf,
+      othersFor(interaction.name),
+      pageSize,
     );
+    scheduleLive(interaction.name, resized);
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLElement>) => {
-    if (interactionRef.current) {
-      interactionRef.current = null;
-      setDragging(false);
-      try {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      } catch {
-        // Ignore if capture was already released.
-      }
+    const interaction = interactionRef.current;
+    if (!interaction) return;
+
+    if (rafRef.current != null) {
+      window.cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+
+    const pending = pendingLiveRef.current;
+    let finalPlacement =
+      pending && pending.name === interaction.name
+        ? pending.placement
+        : livePlacement && liveName === interaction.name
+          ? livePlacement
+          : interaction.startPlacement;
+
+    if (interaction.kind === "move" && interaction.moved) {
+      finalPlacement = separateFromOthers(finalPlacement, othersFor(interaction.name), pageSize);
+    }
+
+    if (interaction.moved) {
+      onMoveField(interaction.name, finalPlacement);
+    }
+
+    interactionRef.current = null;
+    pendingLiveRef.current = null;
+    setLiveName(null);
+    setLivePlacement(null);
+    setSnapGuides({ x: [], y: [] });
+    setDragging(false);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Ignore if capture was already released.
     }
   };
 
@@ -280,8 +336,8 @@ export function PlacementPreview({
         <div>
           <h4>Place fields on the PDF</h4>
           <p>
-            Drag to place, drag the edges to resize. Fields stay clear of each other. Click a field
-            to map or remove it.
+            Drag for precise placement — edges soft-snap to nearby fields. Resize from the handles.
+            Overlaps clear gently when you release. Click a field to map or remove it.
           </p>
         </div>
         <div className="placement-preview-actions">
@@ -350,8 +406,26 @@ export function PlacementPreview({
           >
             <canvas ref={canvasRef} className="placement-canvas" />
             {pageReady &&
+              snapGuides.x.map((x) => (
+                <div
+                  key={`gx-${x}`}
+                  className="placement-snap-guide vertical"
+                  style={{ left: x * scale }}
+                />
+              ))}
+            {pageReady &&
+              snapGuides.y.map((y) => (
+                <div
+                  key={`gy-${y}`}
+                  className="placement-snap-guide horizontal"
+                  style={{ top: (pageSize.height - y) * scale }}
+                />
+              ))}
+            {pageReady &&
               pageFields.map((field) => {
-                const box = toCanvas(field.placement);
+                const placement =
+                  livePlacement && liveName === field.name ? livePlacement : field.placement;
+                const box = toCanvas(placement);
                 const sample = sampleValues[field.name] || "";
                 const active = selectedField === field.name;
                 const expanded = active && !dragging;
@@ -364,7 +438,7 @@ export function PlacementPreview({
                       expanded ? "expanded" : "collapsed"
                     } ${field.type} ${mapped ? "mapped" : "unmapped"} ${
                       chromeBelow ? "chrome-below" : "chrome-above"
-                    }`}
+                    } ${dragging && active ? "dragging" : ""}`}
                     style={{
                       left: box.x,
                       top: box.y,

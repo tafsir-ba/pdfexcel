@@ -3,6 +3,8 @@ import type { StaticPlacement } from "./static-pdf";
 export const MIN_PLACEMENT_WIDTH = 24;
 export const MIN_PLACEMENT_HEIGHT = 8;
 const GAP = 1;
+/** Soft align snap distance in PDF points while dragging. */
+export const SNAP_THRESHOLD = 3;
 
 type Bounds = { width: number; height: number };
 
@@ -59,14 +61,17 @@ function penetration(a: StaticPlacement, b: StaticPlacement) {
   };
 }
 
-/** Push `candidate` just clear of `others` with the smallest translation. */
+/**
+ * Push `candidate` clear of `others` using the minimum translation vector.
+ * Nudges by overlap depth only — never teleports to the far side of a neighbor.
+ */
 export function separateFromOthers(
   candidate: StaticPlacement,
   others: StaticPlacement[],
   page: Bounds,
 ): StaticPlacement {
   let next = clampToPage(candidate, page);
-  for (let pass = 0; pass < 8; pass += 1) {
+  for (let pass = 0; pass < 12; pass += 1) {
     let hit: StaticPlacement | null = null;
     for (const other of others) {
       if (placementsOverlap(next, other)) {
@@ -82,7 +87,7 @@ export function separateFromOthers(
       next = clampToPage(
         {
           ...next,
-          x: moveRight ? hit.x + hit.width + GAP : hit.x - next.width - GAP,
+          x: next.x + (moveRight ? depth.x + GAP : -(depth.x + GAP)),
         },
         page,
       );
@@ -91,13 +96,109 @@ export function separateFromOthers(
       next = clampToPage(
         {
           ...next,
-          y: moveUp ? hit.y + hit.height + GAP : hit.y - next.height - GAP,
+          y: next.y + (moveUp ? depth.y + GAP : -(depth.y + GAP)),
         },
         page,
       );
     }
   }
   return next;
+}
+
+/** 1:1 cursor tracking — page clamp only, no collision jumps. */
+export function movePlacementFree(
+  start: StaticPlacement,
+  dx: number,
+  dy: number,
+  page: Bounds,
+): StaticPlacement {
+  return clampToPage(
+    {
+      ...start,
+      x: start.x + dx,
+      y: start.y + dy,
+    },
+    page,
+  );
+}
+
+/**
+ * Soft-align to neighboring field edges/centers for accurate placement.
+ * Returns snapped placement and which guide edges were used (PDF coords).
+ */
+export function softSnapPlacement(
+  placement: StaticPlacement,
+  others: StaticPlacement[],
+  page: Bounds,
+  threshold = SNAP_THRESHOLD,
+): { placement: StaticPlacement; guides: { x: number[]; y: number[] } } {
+  const x = placement.x;
+  const y = placement.y;
+  const { width, height } = placement;
+  let bestDx = threshold + 1;
+  let bestDy = threshold + 1;
+  let snapX = x;
+  let snapY = y;
+  const guides = { x: [] as number[], y: [] as number[] };
+
+  const considerX = (delta: number, targetX: number, guide: number) => {
+    const abs = Math.abs(delta);
+    if (abs <= threshold && abs < bestDx) {
+      bestDx = abs;
+      snapX = targetX;
+      guides.x = [guide];
+    }
+  };
+  const considerY = (delta: number, targetY: number, guide: number) => {
+    const abs = Math.abs(delta);
+    if (abs <= threshold && abs < bestDy) {
+      bestDy = abs;
+      snapY = targetY;
+      guides.y = [guide];
+    }
+  };
+
+  for (const other of others) {
+    if (other.pageIndex !== placement.pageIndex) continue;
+    const oLeft = other.x;
+    const oRight = other.x + other.width;
+    const oBottom = other.y;
+    const oTop = other.y + other.height;
+    const oMidX = other.x + other.width / 2;
+    const oMidY = other.y + other.height / 2;
+
+    considerX(x - oLeft, oLeft, oLeft);
+    considerX(x + width - oRight, oRight - width, oRight);
+    considerX(x - oRight, oRight, oRight);
+    considerX(x + width - oLeft, oLeft - width, oLeft);
+    considerX(x + width / 2 - oMidX, oMidX - width / 2, oMidX);
+
+    considerY(y - oBottom, oBottom, oBottom);
+    considerY(y + height - oTop, oTop - height, oTop);
+    considerY(y - oTop, oTop, oTop);
+    considerY(y + height - oBottom, oBottom - height, oBottom);
+    considerY(y + height / 2 - oMidY, oMidY - height / 2, oMidY);
+  }
+
+  return {
+    placement: clampToPage(
+      { ...placement, x: bestDx <= threshold ? snapX : x, y: bestDy <= threshold ? snapY : y },
+      page,
+    ),
+    guides,
+  };
+}
+
+/** Live drag: free move + soft snap. Collision resolved on pointer-up. */
+export function movePlacementInteractive(
+  start: StaticPlacement,
+  dx: number,
+  dy: number,
+  others: StaticPlacement[],
+  page: Bounds,
+): { placement: StaticPlacement; guides: { x: number[]; y: number[] } } {
+  const free = movePlacementFree(start, dx, dy, page);
+  return softSnapPlacement(free, others, page);
 }
 
 export function movePlacementWithoutOverlap(
@@ -107,14 +208,7 @@ export function movePlacementWithoutOverlap(
   others: StaticPlacement[],
   page: Bounds,
 ): StaticPlacement {
-  const proposed = clampToPage(
-    {
-      ...start,
-      x: start.x + dx,
-      y: start.y + dy,
-    },
-    page,
-  );
+  const proposed = movePlacementFree(start, dx, dy, page);
   return separateFromOthers(proposed, others, page);
 }
 
