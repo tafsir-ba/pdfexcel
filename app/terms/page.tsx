@@ -1,0 +1,21 @@
+import Link from "next/link";
+
+export default function TermsPage() {
+  return (
+    <main className="legal-page">
+      <Link className="back-link" href="/">← Back to PDF Mail Merge</Link>
+      <h1>Terms</h1>
+      <p className="legal-updated">Effective August 6, 2026</p>
+      <h2>Service</h2>
+      <p>PDF Mail Merge fills supported PDF form fields and detected writing areas using recipient data from a CSV exported by Excel, Google Sheets, or another spreadsheet application. It produces a downloadable archive of individual PDFs. Customers remain responsible for reviewing generated documents before relying on or distributing them.</p>
+      <h2>Paid access</h2>
+      <p>A USD 19 payment unlocks unlimited batches of up to 250 rows on the purchasing device for 30 days. Access is device-bound and is not transferable.</p>
+      <h2>Acceptable use</h2>
+      <p>Do not use PDF Mail Merge for unlawful activity, fraud, impersonation, unauthorized document creation, or processing data you do not have the right to use.</p>
+      <h2>Refunds</h2>
+      <p>If a completed payment does not unlock the advertised service, request a refund using the support details on the Stripe receipt. Refund requests should be made within seven days of purchase.</p>
+      <h2>Limitations</h2>
+      <p>The service supports fillable AcroForm PDFs and printed forms with detectable writing areas. Scanned documents and unusual layouts may not be detected correctly. The service is provided as-is and should not be used as the sole system of record for legal, financial, medical, or regulatory documents.</p>
+    </main>
+  );
+}
