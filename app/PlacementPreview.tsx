@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronLeft, ChevronRight, GripVertical, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { CHECKBOX_ALWAYS, type StaticPlacement } from "./static-pdf";
 
 type PreviewField = {
@@ -23,10 +23,11 @@ type PlacementPreviewProps = {
   mapping: Record<string, string>;
   selectedField: string | null;
   sampleValues: Record<string, string>;
-  onSelectField: (name: string) => void;
+  onSelectField: (name: string | null) => void;
   onMoveField: (name: string, placement: StaticPlacement) => void;
   onMapField: (name: string, value: string) => void;
   onRemoveField: (name: string) => void;
+  onAddField: (pageIndex: number, pageSize: { width: number; height: number }) => void;
 };
 
 export function PlacementPreview({
@@ -40,6 +41,7 @@ export function PlacementPreview({
   onMoveField,
   onMapField,
   onRemoveField,
+  onAddField,
 }: PlacementPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
@@ -49,6 +51,7 @@ export function PlacementPreview({
   /** Only show overlays once canvas matches this page (avoids page-switch misalignment). */
   const [renderedPageIndex, setRenderedPageIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{
     name: string;
     originX: number;
@@ -163,6 +166,7 @@ export function PlacementPreview({
     if ((event.target as HTMLElement).closest("select,button,label,option")) return;
     event.preventDefault();
     onSelectField(field.name);
+    setDragging(false);
     dragRef.current = {
       name: field.name,
       originX: event.clientX,
@@ -179,7 +183,10 @@ export function PlacementPreview({
     const dx = (event.clientX - drag.originX) / scale;
     const dy = (event.clientY - drag.originY) / scale;
     if (!drag.moved && Math.hypot(dx, dy) < 1.5) return;
-    drag.moved = true;
+    if (!drag.moved) {
+      drag.moved = true;
+      setDragging(true);
+    }
     onMoveField(drag.name, {
       ...drag.startPlacement,
       x: Math.max(0, drag.startPlacement.x + dx),
@@ -190,6 +197,7 @@ export function PlacementPreview({
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (dragRef.current) {
       dragRef.current = null;
+      setDragging(false);
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
       } catch {
@@ -198,152 +206,170 @@ export function PlacementPreview({
     }
   };
 
-  if (!placedFields.length) return null;
-
   return (
     <div className="placement-preview">
       <div className="placement-preview-header">
         <div>
-          <h4>Place & map on the PDF</h4>
+          <h4>Place fields on the PDF</h4>
           <p>
-            Drag the outlined fill area onto blanks. Map or remove from the toolbar above each box —
-            toolbar size does not change where text is written.
+            Drag the small name chips onto blanks. Click a field to map or remove it — keep the
+            preview clear while you place.
           </p>
         </div>
-        {pageCount > 1 && (
-          <div className="placement-page-nav" role="navigation" aria-label="PDF pages">
-            <button
-              type="button"
-              className="placement-page-btn"
-              disabled={safePageIndex === 0}
-              aria-label="Previous page"
-              onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <label className="placement-page-label">
-              <span className="sr-only">Page number</span>
-              <select
-                value={safePageIndex}
-                onChange={(event) => setPageIndex(Number(event.target.value))}
-                aria-label="Select PDF page"
+        <div className="placement-preview-actions">
+          {pageCount > 1 && (
+            <div className="placement-page-nav" role="navigation" aria-label="PDF pages">
+              <button
+                type="button"
+                className="placement-page-btn"
+                disabled={safePageIndex === 0}
+                aria-label="Previous page"
+                onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
               >
-                {Array.from({ length: pageCount }, (_, index) => (
-                  <option key={index} value={index}>
-                    Page {index + 1}
-                    {fieldCountsByPage[index] ? ` (${fieldCountsByPage[index]})` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="placement-page-btn"
-              disabled={safePageIndex >= pageCount - 1}
-              aria-label="Next page"
-              onClick={() => setPageIndex((current) => Math.min(pageCount - 1, current + 1))}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        )}
+                <ChevronLeft size={16} />
+              </button>
+              <label className="placement-page-label">
+                <span className="sr-only">Page number</span>
+                <select
+                  value={safePageIndex}
+                  onChange={(event) => setPageIndex(Number(event.target.value))}
+                  aria-label="Select PDF page"
+                >
+                  {Array.from({ length: pageCount }, (_, index) => (
+                    <option key={index} value={index}>
+                      Page {index + 1}
+                      {fieldCountsByPage[index] ? ` (${fieldCountsByPage[index]})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="placement-page-btn"
+                disabled={safePageIndex >= pageCount - 1}
+                aria-label="Next page"
+                onClick={() => setPageIndex((current) => Math.min(pageCount - 1, current + 1))}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className="placement-add-btn"
+            disabled={!pageReady}
+            onClick={() => {
+              if (!pageReady) return;
+              onAddField(safePageIndex, pageSize);
+            }}
+          >
+            <Plus size={15} />
+            Add field
+          </button>
+        </div>
       </div>
       {error ? (
         <p className="placement-preview-error">{error}</p>
       ) : (
         <>
-          <div className="placement-stage">
+          <div
+            className="placement-stage"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget || event.target === canvasRef.current) {
+                onSelectField(null);
+              }
+            }}
+          >
             <canvas ref={canvasRef} className="placement-canvas" />
             {pageReady &&
               pageFields.map((field) => {
                 const box = toCanvas(field.placement);
                 const sample = sampleValues[field.name] || "";
                 const active = selectedField === field.name;
+                const expanded = active && !dragging;
                 const mapped = mapping[field.name] || "";
-                const chromeWidth = Math.max(box.width, field.type === "checkbox" ? 132 : 148);
-                const chromeBelow = box.y < 56;
+                const chromeBelow = box.y < 72;
+                const chipInside = box.y < 16;
                 return (
                   <div
                     key={field.name}
-                    className={`placement-anchor ${active ? "active" : ""} ${field.type} ${
-                      mapped ? "mapped" : "unmapped"
-                    } ${chromeBelow ? "chrome-below" : "chrome-above"}`}
+                    className={`placement-anchor ${active ? "active" : ""} ${
+                      expanded ? "expanded" : "collapsed"
+                    } ${field.type} ${mapped ? "mapped" : "unmapped"} ${
+                      chromeBelow ? "chrome-below" : "chrome-above"
+                    } ${chipInside ? "chip-inside" : ""}`}
                     style={{
                       left: box.x,
                       top: box.y,
                       width: box.width,
                       height: box.height,
                     }}
-                    title={`Drag to position “${field.name}”`}
+                    title={field.name}
                     onPointerDown={(event) => onPointerDown(event, field)}
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
                     onPointerCancel={onPointerUp}
                     onClick={() => onSelectField(field.name)}
                   >
-                    <div
-                      className="placement-chrome"
-                      style={{ width: chromeWidth }}
-                      onPointerDown={(event) => onPointerDown(event, field)}
-                    >
-                      <div className="placement-box-toolbar">
-                        <span className="placement-drag" aria-hidden="true">
-                          <GripVertical size={12} />
-                        </span>
-                        <span className="placement-box-name">{field.name}</span>
-                        <button
-                          type="button"
-                          className="placement-remove"
-                          title={`Remove “${field.name}”`}
-                          aria-label={`Remove ${field.name}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onRemoveField(field.name);
-                          }}
-                          onPointerDown={(event) => event.stopPropagation()}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                      <label
-                        className="placement-map-wrap"
+                    <span className="placement-fill-outline" aria-hidden="true" />
+                    <span className="placement-chip">{field.name}</span>
+                    {expanded ? (
+                      <div
+                        className="placement-chrome"
+                        style={{ width: Math.max(148, Math.min(220, box.width + 40)) }}
                         onPointerDown={(event) => event.stopPropagation()}
                       >
-                        <span className="sr-only">CSV column for {field.name}</span>
-                        {field.type === "checkbox" ? (
-                          <select
-                            value={mapped}
-                            onChange={(event) => onMapField(field.name, event.target.value)}
-                            onClick={(event) => event.stopPropagation()}
+                        <div className="placement-box-toolbar">
+                          <span className="placement-box-name">{field.name}</span>
+                          <button
+                            type="button"
+                            className="placement-remove"
+                            title={`Remove “${field.name}”`}
+                            aria-label={`Remove ${field.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onRemoveField(field.name);
+                            }}
                           >
-                            <option value="">Unchecked</option>
-                            <option value={CHECKBOX_ALWAYS}>Always check</option>
-                            {headers.map((header) => (
-                              <option key={header} value={header}>
-                                When “{header}” is true
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <select
-                            value={mapped}
-                            onChange={(event) => onMapField(field.name, event.target.value)}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <option value="">Do not fill</option>
-                            {headers.map((header) => (
-                              <option key={header} value={header}>
-                                {header}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </label>
-                      {sample && mapped && mapped !== CHECKBOX_ALWAYS ? (
-                        <span className="placement-box-sample">{sample}</span>
-                      ) : null}
-                    </div>
-                    <span className="placement-fill-outline" aria-hidden="true" />
+                            <X size={12} />
+                          </button>
+                        </div>
+                        <label className="placement-map-wrap">
+                          <span className="sr-only">CSV column for {field.name}</span>
+                          {field.type === "checkbox" ? (
+                            <select
+                              value={mapped}
+                              onChange={(event) => onMapField(field.name, event.target.value)}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <option value="">Unchecked</option>
+                              <option value={CHECKBOX_ALWAYS}>Always check</option>
+                              {headers.map((header) => (
+                                <option key={header} value={header}>
+                                  When “{header}” is true
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <select
+                              value={mapped}
+                              onChange={(event) => onMapField(field.name, event.target.value)}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <option value="">Do not fill</option>
+                              {headers.map((header) => (
+                                <option key={header} value={header}>
+                                  {header}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </label>
+                        {sample && mapped && mapped !== CHECKBOX_ALWAYS ? (
+                          <span className="placement-box-sample">{sample}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
@@ -353,7 +379,7 @@ export function PlacementPreview({
           )}
           {pageReady && pageFields.length === 0 && (
             <p className="placement-preview-note">
-              No writing areas on page {safePageIndex + 1}. Use the page control to review other pages.
+              No fields on page {safePageIndex + 1}. Use Add field to place one, or open another page.
             </p>
           )}
         </>

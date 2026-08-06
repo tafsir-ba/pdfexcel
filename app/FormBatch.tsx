@@ -258,6 +258,7 @@ export function FormBatch() {
   );
   const isReady = Boolean(pdfFile && csvFile && supportedFields.length && rows.length && mappedCount);
   const hasPrintedFields = supportedFields.some((field) => field.placement);
+  const showPrintedPreview = Boolean(pdfFile) && (hasPrintedFields || removedFieldNames.length > 0);
   const previewSamples = useMemo(() => {
     const row = rows[0] || {};
     return Object.fromEntries(
@@ -288,6 +289,28 @@ export function FormBatch() {
       return next;
     });
     setSelectedField((current) => (current === name ? null : current));
+  };
+
+  const addPrintedField = (pageIndex: number, size: { width: number; height: number }) => {
+    const used = new Set(fields.map((field) => field.name));
+    let index = 1;
+    let name = `Field ${index}`;
+    while (used.has(name)) {
+      index += 1;
+      name = `Field ${index}`;
+    }
+    const width = Math.min(180, Math.max(80, size.width * 0.35));
+    const placement: StaticPlacement = {
+      pageIndex,
+      x: Math.max(24, size.width * 0.12),
+      y: Math.max(40, size.height * 0.55),
+      width,
+      height: 11,
+    };
+    setFields((current) => [...current, { name, type: "text", placement }]);
+    setMapping((current) => ({ ...current, [name]: "" }));
+    setSelectedField(name);
+    setRemovedFieldNames((current) => current.filter((entry) => entry !== name));
   };
 
   useEffect(() => {
@@ -772,11 +795,11 @@ export function FormBatch() {
               <div className="section-title-row">
                 <div>
                   <span className="section-number">02</span>
-                  <h3>{hasPrintedFields ? "Place fields & map columns" : "Match PDF fields to spreadsheet columns"}</h3>
+                  <h3>{showPrintedPreview ? "Place fields & map columns" : "Match PDF fields to spreadsheet columns"}</h3>
                 </div>
                 <span className="mapping-count">{mappedCount}/{supportedFields.length} configured</span>
               </div>
-              {pdfFile && hasPrintedFields && (
+              {showPrintedPreview && pdfFile && (
                 <PlacementPreview
                   pdfFile={pdfFile}
                   fields={supportedFields}
@@ -788,9 +811,10 @@ export function FormBatch() {
                   onMoveField={movePrintedField}
                   onMapField={mapPrintedField}
                   onRemoveField={removePrintedField}
+                  onAddField={addPrintedField}
                 />
               )}
-              <div className={`mapping-list ${hasPrintedFields ? "mapping-list-dense" : ""}`}>
+              <div className={`mapping-list ${showPrintedPreview ? "mapping-list-dense" : ""}`}>
                 {supportedFields.map((field) => (
                   <div
                     className={`mapping-row ${selectedField === field.name ? "selected" : ""}`}
