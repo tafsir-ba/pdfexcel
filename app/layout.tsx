@@ -11,17 +11,17 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase,
     title: "PDF Mail Merge from Excel or CSV",
-    description: "Mail merge Excel or CSV data into fillable PDF forms. Generate individually named PDFs privately in your browser with no Acrobat, account, or uploads.",
+    description: "Mail merge Excel or CSV data into fillable PDF forms. Generate individually named PDFs privately in your browser — no Acrobat, and your files are never uploaded.",
     openGraph: {
       title: "PDF Mail Merge from Excel or CSV",
-      description: "Turn spreadsheet rows into individually named PDFs. No Acrobat, account, or uploads.",
+      description: "Turn spreadsheet rows into individually named PDFs. No Acrobat, and files stay in your browser.",
       type: "website",
       images: [{ url: "/og.png", width: 1717, height: 916, alt: "PDF Mail Merge turns Excel or CSV rows into individual PDFs" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "PDF Mail Merge from Excel or CSV",
-      description: "Turn spreadsheet rows into individually named PDFs. No Acrobat or uploads.",
+      description: "Turn spreadsheet rows into individually named PDFs. No Acrobat or file uploads.",
       images: ["/og.png"],
     },
   };

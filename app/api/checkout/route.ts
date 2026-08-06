@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
   parameters.set("payment_intent_data[metadata][product]", plan.productKey);
   parameters.set("allow_promotion_codes", "true");
   parameters.set("billing_address_collection", "auto");
+  parameters.set("customer_creation", "always");
   // Card-only avoids Stripe Dashboard Amazon Pay misconfig console noise for this flow.
   parameters.set("payment_method_types[0]", "card");
 

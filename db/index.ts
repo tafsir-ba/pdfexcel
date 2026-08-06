@@ -31,6 +31,7 @@ const SCHEMA_STATEMENTS = [
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id TEXT,
     email TEXT,
+    password_hash TEXT,
     stripe_customer_id TEXT UNIQUE,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -87,6 +88,7 @@ const SCHEMA_STATEMENTS = [
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE INDEX IF NOT EXISTS entitlements_device_idx ON entitlements(device_id)`,
+  `CREATE INDEX IF NOT EXISTS entitlements_email_idx ON entitlements(email)`,
   `CREATE INDEX IF NOT EXISTS entitlements_status_idx ON entitlements(status)`,
   `CREATE TABLE IF NOT EXISTS usage_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -265,4 +267,10 @@ export async function ensureSchema(client?: D1Like | D1Database) {
   const db = (client || (await getDbClient())) as D1Like;
   const statements = SCHEMA_STATEMENTS.map((sql) => db.prepare(sql));
   await db.batch(statements);
+  // Existing Droplet DBs created before password accounts need this column.
+  try {
+    await db.prepare("ALTER TABLE customers ADD COLUMN password_hash TEXT").run();
+  } catch {
+    /* column already exists */
+  }
 }
