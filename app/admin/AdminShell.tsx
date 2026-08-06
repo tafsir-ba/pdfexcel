@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useSyncExternalStore } from "react";
 
 const NAV = [
   { href: "/admin", label: "Dashboard" },
@@ -14,15 +14,15 @@ const NAV = [
   { href: "/admin/users", label: "Admin users" },
 ];
 
+function readAdminEmail() {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem("adminEmail") || "";
+}
+
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [email, setEmail] = useState("");
-
-  useEffect(() => {
-    const stored = sessionStorage.getItem("adminEmail");
-    if (stored) setEmail(stored);
-  }, []);
+  const email = useSyncExternalStore(() => () => {}, readAdminEmail, () => "");
 
   async function logout() {
     await fetch("/api/admin/logout", { method: "POST" });

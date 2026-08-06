@@ -39,8 +39,16 @@ export default function AdminPricingPage() {
   }
 
   useEffect(() => {
-    void load();
-  }, []);
+    void (async () => {
+      const response = await fetch("/api/admin/pricing");
+      if (response.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      const result = await response.json();
+      setPlans(result.plans || []);
+    })();
+  }, [router]);
 
   async function createPlan(event: FormEvent) {
     event.preventDefault();

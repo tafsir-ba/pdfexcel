@@ -21,9 +21,9 @@ export default function AdminUsagePage() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<EventRow[]>([]);
 
-  async function load() {
+  async function load(nextQ = q) {
     const params = new URLSearchParams();
-    if (q) params.set("q", q);
+    if (nextQ) params.set("q", nextQ);
     const response = await fetch(`/api/admin/usage?${params}`);
     if (response.status === 401) {
       router.replace("/admin/login");
@@ -34,8 +34,16 @@ export default function AdminUsagePage() {
   }
 
   useEffect(() => {
-    void load();
-  }, []);
+    void (async () => {
+      const response = await fetch("/api/admin/usage");
+      if (response.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      const result = await response.json();
+      setRows(result.events || []);
+    })();
+  }, [router]);
 
   return (
     <>

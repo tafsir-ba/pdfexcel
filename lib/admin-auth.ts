@@ -32,11 +32,17 @@ export async function sha256Hex(value: string) {
 }
 
 export function sanitizeFilename(value: string) {
-  return value
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "file";
+  const base = value.split(/[/\\]/).pop() || "file";
+  return (
+    base
+      .trim()
+      .replace(/^\.+/, "")
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .replace(/-\./g, ".")
+      .slice(0, 80) || "file"
+  );
 }
 
 export type AdminRole = "owner" | "support" | "finance" | "readonly";

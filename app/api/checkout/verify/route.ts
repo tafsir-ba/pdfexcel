@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withAdminDb, recordPaidCheckout, pricingPlans, and, eq } from "../../../lib/admin-data";
+import { withAdminDb, recordPaidCheckout, pricingPlans, and, eq } from "../../../../lib/admin-data";
 
 const DEFAULT_DURATION_DAYS = 30;
 const DEFAULT_PRODUCT = "formbatch_30_day_access";

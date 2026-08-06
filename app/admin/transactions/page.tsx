@@ -25,10 +25,10 @@ export default function AdminTransactionsPage() {
   const [rows, setRows] = useState<Tx[]>([]);
   const [error, setError] = useState("");
 
-  async function load() {
+  async function load(nextQ = q, nextStatus = status) {
     const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (status) params.set("status", status);
+    if (nextQ) params.set("q", nextQ);
+    if (nextStatus) params.set("status", nextStatus);
     const response = await fetch(`/api/admin/transactions?${params}`);
     if (response.status === 401) {
       router.replace("/admin/login");
@@ -43,8 +43,20 @@ export default function AdminTransactionsPage() {
   }
 
   useEffect(() => {
-    void load();
-  }, []);
+    void (async () => {
+      const response = await fetch("/api/admin/transactions");
+      if (response.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      const result = await response.json();
+      if (!response.ok) {
+        setError(result.error || "Failed to load.");
+        return;
+      }
+      setRows(result.transactions || []);
+    })();
+  }, [router]);
 
   return (
     <>

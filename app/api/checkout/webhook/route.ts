@@ -8,7 +8,7 @@ import {
   and,
   eq,
   sql,
-} from "../../../lib/admin-data";
+} from "../../../../lib/admin-data";
 
 async function verifyStripeSignature(payload: string, header: string | null, secret: string) {
   if (!header) return false;

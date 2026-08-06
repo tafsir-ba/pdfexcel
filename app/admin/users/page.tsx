@@ -3,9 +3,17 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-function UsersInner() {
+type AdminUser = {
+  id: number;
+  email: string;
+  role: string;
+  active: boolean;
+  createdAt: string;
+};
+
+export default function AdminUsersPage() {
   const router = useRouter();
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("support");
@@ -28,8 +36,20 @@ function UsersInner() {
   }
 
   useEffect(() => {
-    void load();
-  }, []);
+    void (async () => {
+      const response = await fetch("/api/admin/users");
+      if (response.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      if (response.status === 403) {
+        setMessage("Owner role required to manage admin users.");
+        return;
+      }
+      const result = await response.json();
+      setUsers(result.users || []);
+    })();
+  }, [router]);
 
   async function createUser(event: FormEvent) {
     event.preventDefault();
@@ -124,8 +144,4 @@ function UsersInner() {
       </form>
     </>
   );
-}
-
-export default function AdminUsersPage() {
-  return <UsersInner />;
 }

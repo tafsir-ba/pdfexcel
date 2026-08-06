@@ -3,10 +3,29 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
+type DetailPayload = {
+  privacyNote?: string;
+  transaction: {
+    id: number;
+    customerEmail: string | null;
+    deviceId: string | null;
+    providerSessionId: string | null;
+    providerPaymentId: string | null;
+    status: string;
+    amountCents: number;
+    currency: string;
+    accessStartsAt: string | null;
+    accessEndsAt: string | null;
+  };
+  entitlements: unknown[];
+  webhooks: unknown[];
+  notes: unknown[];
+};
+
 export default function AdminTransactionDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DetailPayload | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {

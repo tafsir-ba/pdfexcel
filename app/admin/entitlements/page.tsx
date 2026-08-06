@@ -35,8 +35,16 @@ export default function AdminEntitlementsPage() {
   }
 
   useEffect(() => {
-    void load();
-  }, []);
+    void (async () => {
+      const response = await fetch("/api/admin/entitlements");
+      if (response.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      const result = await response.json();
+      setRows(result.entitlements || []);
+    })();
+  }, [router]);
 
   async function grant(event: FormEvent) {
     event.preventDefault();

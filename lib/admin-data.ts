@@ -27,6 +27,11 @@ import {
 } from "./admin-auth";
 
 export async function withAdminDb<T>(fn: (db: AppDb) => Promise<T>) {
+  if (!env.DB) {
+    throw new Error(
+      "Cloudflare D1 binding `DB` is unavailable. Set the `d1` field in .openai/hosting.json to `DB`.",
+    );
+  }
   await ensureSchema(env.DB);
   const db = getDb();
   await bootstrapAdmin(db);

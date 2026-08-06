@@ -3,11 +3,27 @@
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+type ClaimRow = {
+  id: number;
+  subject: string;
+  customerEmail: string | null;
+  status: string;
+};
+
+type ClaimDetail = {
+  privacyNote?: string;
+  claim: ClaimRow & { deviceId?: string | null };
+  transactions: unknown[];
+  entitlements: unknown[];
+  usage: unknown[];
+  notes: unknown[];
+};
+
 function ClaimsInner() {
   const router = useRouter();
   const search = useSearchParams();
-  const [claims, setClaims] = useState<any[]>([]);
-  const [detail, setDetail] = useState<any>(null);
+  const [claims, setClaims] = useState<ClaimRow[]>([]);
+  const [detail, setDetail] = useState<ClaimDetail | null>(null);
   const [subject, setSubject] = useState("");
   const [email, setEmail] = useState("");
   const [deviceId, setDeviceId] = useState("");
@@ -31,10 +47,22 @@ function ClaimsInner() {
   }
 
   useEffect(() => {
-    void loadList();
-    const id = search.get("id");
-    if (id) void loadDetail(id);
-  }, [search]);
+    const claimId = search.get("id");
+    void (async () => {
+      const response = await fetch("/api/admin/claims");
+      if (response.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      const result = await response.json();
+      setClaims(result.claims || []);
+      if (claimId) {
+        const detailResponse = await fetch(`/api/admin/claims?id=${claimId}`);
+        const detailResult = await detailResponse.json();
+        if (detailResponse.ok) setDetail(detailResult);
+      }
+    })();
+  }, [search, router]);
 
   async function createClaim(event: FormEvent) {
     event.preventDefault();
