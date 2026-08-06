@@ -1,5 +1,63 @@
-import type { PDFDocument, PDFFont } from "pdf-lib";
+import { degrees, type PDFDocument, type PDFFont, type PDFPage } from "pdf-lib";
 import "pdfjs-dist/legacy/build/pdf.worker.mjs";
+
+/** Normalize PDF /Rotate to a supported clockwise display angle. */
+export function normalizePageRotation(angle: number): 0 | 90 | 180 | 270 {
+  const rounded = ((Math.round(angle / 90) * 90) % 360 + 360) % 360;
+  if (rounded === 90 || rounded === 180 || rounded === 270) return rounded;
+  return 0;
+}
+
+/**
+ * Viewer/page size after applying /Rotate — matches pdf.js default viewport
+ * and the coordinate space used by PlacementPreview.
+ */
+export function visualPageSize(
+  mediaWidth: number,
+  mediaHeight: number,
+  rotation: number,
+): { width: number; height: number } {
+  const r = normalizePageRotation(rotation);
+  return r % 180 === 0
+    ? { width: mediaWidth, height: mediaHeight }
+    : { width: mediaHeight, height: mediaWidth };
+}
+
+export function pdfLibVisualPageSize(page: Pick<PDFPage, "getSize" | "getRotation">) {
+  const media = page.getSize();
+  return visualPageSize(media.width, media.height, page.getRotation().angle);
+}
+
+/**
+ * Map a point from visual (pdf.js / preview) bottom-left coordinates into
+ * unrotated PDF user space for pdf-lib drawing.
+ */
+export function visualToUserSpace(
+  x: number,
+  y: number,
+  mediaWidth: number,
+  mediaHeight: number,
+  rotation: number,
+): { x: number; y: number } {
+  const r = normalizePageRotation(rotation);
+  if (r === 90) return { x: mediaWidth - y, y: x };
+  if (r === 180) return { x: mediaWidth - x, y: mediaHeight - y };
+  if (r === 270) return { x: y, y: mediaHeight - x };
+  return { x, y };
+}
+
+function pageDrawOrientation(page: PDFPage | { getSize?: () => { width: number; height: number }; getRotation?: () => { angle: number } }) {
+  if (typeof page.getSize !== "function") {
+    return { mediaWidth: 0, mediaHeight: 0, rotation: 0 as const };
+  }
+  const media = page.getSize();
+  const angle = typeof page.getRotation === "function" ? page.getRotation().angle : 0;
+  return {
+    mediaWidth: media.width,
+    mediaHeight: media.height,
+    rotation: normalizePageRotation(angle),
+  };
+}
 
 let pdfWorkerConfigured = false;
 
@@ -189,17 +247,25 @@ export function applyStaticPdfFields(
     if (!rule) continue;
     const page = document.getPages()[field.placement.pageIndex];
     if (!page) continue;
+    const { mediaWidth, mediaHeight, rotation } = pageDrawOrientation(page);
+    const toUser = (vx: number, vy: number) =>
+      mediaWidth > 0
+        ? visualToUserSpace(vx, vy, mediaWidth, mediaHeight, rotation)
+        : { x: vx, y: vy };
+    const drawOpts = rotation ? { rotate: degrees(rotation) } : {};
 
     if (field.type === "checkbox") {
       if (isCheckboxChecked(rule, row)) {
         const mark = "X";
         const font = resolveFont(field.placement.fontFamily, mark, field.placement.bold);
         const markSize = field.placement.fontSize || Math.min(9, field.placement.height);
+        const at = toUser(field.placement.x, field.placement.y - 1);
         page.drawText(mark, {
-          x: field.placement.x,
-          y: field.placement.y - 1,
+          x: at.x,
+          y: at.y,
           size: Math.min(markSize, field.placement.height),
           font,
+          ...drawOpts,
         });
       }
       continue;
@@ -216,18 +282,20 @@ export function applyStaticPdfFields(
     }
     const textWidth = measureTextWidth(font, value, fontSize);
     const align = field.placement.align || "left";
-    const x =
+    const visualX =
       align === "center"
         ? field.placement.x + Math.max(0, (field.placement.width - textWidth) / 2)
         : align === "right"
           ? field.placement.x + Math.max(0, field.placement.width - textWidth)
           : field.placement.x;
+    const at = toUser(visualX, field.placement.y);
     page.drawText(value, {
-      x,
-      y: field.placement.y,
+      x: at.x,
+      y: at.y,
       size: fontSize,
       font,
       maxWidth: field.placement.width,
+      ...drawOpts,
     });
   }
 }

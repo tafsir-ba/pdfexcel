@@ -55,6 +55,7 @@ import {
   detectStaticPdfFields,
   isCheckboxChecked,
   PLACEMENT_FONT_OPTIONS,
+  pdfLibVisualPageSize,
   withSavedPlacements,
   type DetectedStaticField,
   type PlacementFontFamily,
@@ -1059,7 +1060,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           const merged = withSavedPlacements(staticFields, restored, removed);
           const separated: DetectedStaticField[] = [];
           for (let pageIndex = 0; pageIndex < document.getPageCount(); pageIndex += 1) {
-            const size = document.getPage(pageIndex).getSize();
+            // Use viewer size (pdf.js /Rotate applied), matching PlacementPreview coords.
+            const size = pdfLibVisualPageSize(document.getPage(pageIndex));
             const onPage = merged.filter((field) => field.placement.pageIndex === pageIndex);
             separated.push(
               ...resolveFieldOverlaps(onPage, { width: size.width, height: size.height }),

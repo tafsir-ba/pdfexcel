@@ -4,7 +4,7 @@ import test from "node:test";
 import fontkit from "@pdf-lib/fontkit";
 import JSZip from "jszip";
 import Papa from "papaparse";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 import { createDemoFiles } from "../app/demo-files.ts";
 import { decodeCsvBytes } from "../app/csv.ts";
 import {
@@ -13,6 +13,9 @@ import {
   detectStaticPdfFields,
   isCheckboxChecked,
   mergeSavedPlacements,
+  normalizePageRotation,
+  visualPageSize,
+  visualToUserSpace,
   withoutRemovedFields,
   withSavedPlacements,
 } from "../app/static-pdf.ts";
@@ -535,6 +538,61 @@ test("printed text fields honor bold and alignment", () => {
   assert.equal(draws.length, 1);
   assert.equal(draws[0].options.font, bold);
   assert.ok(draws[0].options.x > 10, "centered text should shift right of the box origin");
+});
+
+test("visual page helpers map /Rotate 90 into landscape viewer space", () => {
+  assert.equal(normalizePageRotation(90), 90);
+  assert.equal(normalizePageRotation(-90), 270);
+  assert.deepEqual(visualPageSize(595, 842, 90), { width: 842, height: 595 });
+  assert.deepEqual(visualToUserSpace(300, 280, 595, 842, 90), { x: 315, y: 300 });
+  assert.deepEqual(visualToUserSpace(100, 50, 400, 200, 0), { x: 100, y: 50 });
+});
+
+test("printed text on a /Rotate 90 page is drawn upright in viewer space", async () => {
+  const source = await PDFDocument.create();
+  const template = source.addPage([400, 200]);
+  template.setRotation(degrees(90));
+  const bytes = await source.save();
+
+  const document = await PDFDocument.load(bytes);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  applyStaticPdfFields(
+    document,
+    [
+      {
+        name: "Name",
+        type: "text",
+        placement: { pageIndex: 0, x: 40, y: 120, width: 160, height: 18, fontSize: 14 },
+      },
+    ],
+    { Name: "Name" },
+    { Name: "ROBERT" },
+    font,
+  );
+
+  const filled = await document.save();
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({ data: filled, useSystemFonts: true });
+  const pdf = await task.promise;
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 1 });
+  assert.equal(Math.round(viewport.width), 200);
+  assert.equal(Math.round(viewport.height), 400);
+
+  const content = await page.getTextContent();
+  const item = content.items.find((entry) => entry.str === "ROBERT");
+  assert.ok(item, "filled value should be present");
+  const [vx, vyTop] = viewport.convertToViewportPoint(item.transform[4], item.transform[5]);
+  const vy = viewport.height - vyTop;
+  assert.ok(Math.abs(vx - 40) < 1, `expected visual x≈40, got ${vx}`);
+  assert.ok(Math.abs(vy - 120) < 1, `expected visual y≈120, got ${vy}`);
+  const xAxis = viewport.convertToViewportPoint(
+    item.transform[4] + item.transform[0],
+    item.transform[5] + item.transform[1],
+  );
+  const angle = (Math.atan2(viewport.height - xAxis[1] - vy, xAxis[0] - vx) * 180) / Math.PI;
+  assert.ok(Math.abs(angle) < 1, `text should be horizontal in viewer space, got ${angle}°`);
+  await task.destroy();
 });
 
 test("printed text falls back when the chosen font cannot encode the value", () => {
