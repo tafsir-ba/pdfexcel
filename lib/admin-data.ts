@@ -67,7 +67,7 @@ export async function enforceRetention(db: AppDb, nowMs = Date.now()) {
   for (const rawId of workspaceIds) {
     const customerId = Number(rawId);
     if (!Number.isFinite(customerId)) continue;
-    const [active] = await db
+    const [byCustomerId] = await db
       .select({ id: entitlements.id })
       .from(entitlements)
       .where(
@@ -78,9 +78,36 @@ export async function enforceRetention(db: AppDb, nowMs = Date.now()) {
         ),
       )
       .limit(1);
-    if (!active) {
-      await deleteCustomerWorkspace(customerId);
+    if (byCustomerId) continue;
+
+    const [customer] = await db
+      .select({ email: customers.email })
+      .from(customers)
+      .where(eq(customers.id, customerId))
+      .limit(1);
+    if (customer?.email) {
+      const [byEmail] = await db
+        .select({ id: entitlements.id })
+        .from(entitlements)
+        .where(
+          and(
+            eq(entitlements.email, customer.email),
+            eq(entitlements.status, "active"),
+            gte(entitlements.endsAt, nowIsoForFiles),
+          ),
+        )
+        .limit(1);
+      if (byEmail) {
+        // Repair missing customerId so later purges stay aligned with access.
+        await db
+          .update(entitlements)
+          .set({ customerId, updatedAt: sql`CURRENT_TIMESTAMP` })
+          .where(eq(entitlements.id, byEmail.id));
+        continue;
+      }
     }
+
+    await deleteCustomerWorkspace(customerId);
   }
 
   return { skipped: false as const, cutoff, days };

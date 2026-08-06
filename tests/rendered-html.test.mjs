@@ -243,6 +243,7 @@ test("verification accepts a paid session on the original or another device", as
     assert.equal(paidBody.expiresAt, created * 1000 + 30 * 24 * 60 * 60 * 1000);
     assert.equal(paidBody.email, "buyer@example.com");
     assert.equal(paidBody.needsAccount, true);
+    assert.equal(paidResponse.headers.get("set-cookie"), null);
 
     // Same Checkout session can finish account setup / unlock on another screen.
     const otherDevice = await worker.fetch(
@@ -256,6 +257,64 @@ test("verification accepts a paid session on the original or another device", as
     globalThis.fetch = originalFetch;
     if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
     else delete process.env.STRIPE_SECRET_KEY;
+  }
+});
+
+test("verification sets a session cookie when the paid account already has a password", async () => {
+  const previousKey = process.env.STRIPE_SECRET_KEY;
+  const previousSecret = process.env.ADMIN_SESSION_SECRET;
+  const originalFetch = globalThis.fetch;
+  process.env.STRIPE_SECRET_KEY = "sk_test_verify_session";
+  process.env.ADMIN_SESSION_SECRET = "test-admin-secret";
+  const created = Math.floor(Date.now() / 1000) - 60;
+  const email = `returning-${process.pid}-${Date.now()}@example.com`;
+  globalThis.fetch = async () =>
+    Response.json({
+      payment_status: "paid",
+      created,
+      amount_total: 1900,
+      currency: "usd",
+      customer_details: { email },
+      metadata: { device_id: "device-returning", product: "formbatch_30_day_access" },
+    });
+
+  try {
+    const worker = await loadWorker("verify-returning-session");
+    const register = await worker.fetch(
+      new Request("https://formbatch.example/api/account/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "cs_test_returning",
+          deviceId: "device-returning",
+          password: "password-returning",
+        }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(register.status, 200, await register.clone().text());
+
+    const verify = await worker.fetch(
+      new Request(
+        "https://formbatch.example/api/checkout/verify?session_id=cs_test_returning&device_id=device-returning",
+      ),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(verify.status, 200, await verify.clone().text());
+    const body = await verify.json();
+    assert.equal(body.paid, true);
+    assert.equal(body.needsAccount, false);
+    assert.equal(body.email, email);
+    const cookie = verify.headers.get("set-cookie") || "";
+    assert.match(cookie, /formbatch_customer_session=/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
+    else delete process.env.STRIPE_SECRET_KEY;
+    if (previousSecret) process.env.ADMIN_SESSION_SECRET = previousSecret;
+    else delete process.env.ADMIN_SESSION_SECRET;
   }
 });
 

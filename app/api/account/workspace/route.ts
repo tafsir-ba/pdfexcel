@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAdminDb } from "../../../../lib/admin-data";
 import {
   loadCustomerWorkspace,
+  requireCustomerFromRequest,
   requirePaidCustomer,
   saveCustomerWorkspace,
   workspaceSummary,
@@ -43,12 +44,17 @@ export async function GET(request: NextRequest) {
 
 /** Save PDF/CSV + mapping to the paid account for cross-device restore. */
 export async function PUT(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as WorkspacePayload | null;
-  if (!body?.pdfBase64 || !body?.csvBase64 || !body.pdfName || !body.csvName || typeof body.mapping !== "object") {
-    return NextResponse.json({ error: "PDF, CSV, and mapping are required." }, { status: 400 });
-  }
-
   try {
+    const session = await requireCustomerFromRequest(request);
+    if (!session) {
+      return NextResponse.json({ error: "Sign in to access your saved files." }, { status: 401 });
+    }
+
+    const body = (await request.json().catch(() => null)) as WorkspacePayload | null;
+    if (!body?.pdfBase64 || !body?.csvBase64 || !body.pdfName || !body.csvName || typeof body.mapping !== "object" || body.mapping === null || Array.isArray(body.mapping)) {
+      return NextResponse.json({ error: "PDF, CSV, and mapping are required." }, { status: 400 });
+    }
+
     const outcome = await withAdminDb(async (db) => {
       const auth = await requirePaidCustomer(db, request);
       if ("error" in auth) {

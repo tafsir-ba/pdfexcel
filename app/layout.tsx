@@ -11,17 +11,20 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase,
     title: "PDF Batch — Fill PDF forms from Excel or CSV",
-    description: "Batch-fill PDF forms from Excel or CSV. Upload one form and one spreadsheet, then download one completed PDF per row — privately in your browser, with no uploads.",
+    description:
+      "Batch-fill PDF forms from Excel or CSV. Free preview stays in your browser; paid access syncs templates and generated ZIPs to your account for re-download during the paid period.",
     openGraph: {
       title: "PDF Batch — Fill PDF forms from Excel or CSV",
-      description: "One PDF form + one spreadsheet → one filled PDF per row. No Acrobat, and files stay in your browser.",
+      description:
+        "One PDF form + one spreadsheet → one filled PDF per row. Paid accounts restore files and ZIPs across devices.",
       type: "website",
       images: [{ url: "/og.png", width: 1717, height: 916, alt: "PDF Batch turns Excel or CSV rows into individual filled PDFs" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "PDF Batch — Fill PDF forms from Excel or CSV",
-      description: "One PDF form + one spreadsheet → one filled PDF per row. No Acrobat or file uploads.",
+      description:
+        "One PDF form + one spreadsheet → one filled PDF per row. Restore paid files and batches on any device.",
       images: ["/og.png"],
     },
   };

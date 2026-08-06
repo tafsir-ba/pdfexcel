@@ -330,6 +330,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   const [savedBatches, setSavedBatches] = useState<CloudBatch[]>([]);
   const [cloudSummary, setCloudSummary] = useState<Omit<CloudWorkspaceSummary, "batches"> | null>(null);
   const [cloudBusy, setCloudBusy] = useState<"loading" | "saving" | "batch" | null>(null);
+  /** True only when a paid session cookie is present — gates My files / autosave / ZIP upload claims. */
+  const [cloudSyncReady, setCloudSyncReady] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
   const [livePricing, setLivePricing] = useState<LivePricing>(
@@ -480,6 +482,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         if (response.status === 401 || response.status === 402) {
           setCloudSummary(null);
           setSavedBatches([]);
+          setCloudSyncReady(false);
         }
         return null;
       }
@@ -491,6 +494,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         updatedAt: result.updatedAt || null,
       });
       setSavedBatches(Array.isArray(result.batches) ? result.batches : []);
+      setCloudSyncReady(true);
       return result;
     } catch {
       return null;
@@ -569,32 +573,6 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     }
   };
 
-  const uploadCloudBatch = async (blob: Blob, filename: string, pdfCount: number, kind: "preview" | "complete") => {
-    setCloudBusy("batch");
-    try {
-      const form = new FormData();
-      form.append("file", blob, filename);
-      form.append("pdfCount", String(pdfCount));
-      form.append("kind", kind);
-      const response = await fetch("/api/account/batches", {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
-      if (!response.ok) return;
-      const result = (await response.json()) as { batch?: CloudBatch };
-      if (result.batch) {
-        setSavedBatches((current) => [result.batch!, ...current.filter((row) => row.id !== result.batch!.id)].slice(0, 25));
-      } else {
-        await refreshCloudSummary();
-      }
-    } catch {
-      /* soft-fail — local download already succeeded */
-    } finally {
-      setCloudBusy(null);
-    }
-  };
-
   const downloadCloudBatch = async (batch: CloudBatch) => {
     setCloudBusy("loading");
     setError("");
@@ -615,18 +593,23 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     }
   };
 
-  const afterPaidSession = async (opts?: { preferCloudFiles?: boolean; hasLocalFiles?: boolean }) => {
+  const afterPaidSession = async (opts?: { preferCloudFiles?: boolean }) => {
     const summary = await refreshCloudSummary();
+    if (!summary) {
+      setCloudSyncReady(false);
+      return;
+    }
+    setCloudSyncReady(true);
     if (!opts?.preferCloudFiles) return;
-    if (opts.hasLocalFiles) return;
-    if (summary?.hasWorkspace) {
+    // Explicit restore/sign-in prefers account files over whatever is on this browser.
+    if (summary.hasWorkspace) {
       await loadCloudWorkspace({ quiet: true });
       setNotice(
         `Signed in. Restored your saved files${
           summary.batches?.length ? ` and ${summary.batches.length} generated batch${summary.batches.length === 1 ? "" : "es"}` : ""
         }.`,
       );
-    } else if (summary?.batches?.length) {
+    } else if (summary.batches?.length) {
       setNotice(
         `Signed in. ${summary.batches.length} previously generated ZIP${summary.batches.length === 1 ? "" : "s"} available under My files.`,
       );
@@ -634,7 +617,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   };
 
   useEffect(() => {
-    if (!hasAccess || !pdfFile || !csvFile || !supportedFields.length) return;
+    if (!cloudSyncReady || !pdfFile || !csvFile || !supportedFields.length) return;
     if (skipCloudAutosaveRef.current) return;
     if (cloudAutosaveTimerRef.current) window.clearTimeout(cloudAutosaveTimerRef.current);
     cloudAutosaveTimerRef.current = window.setTimeout(() => {
@@ -645,7 +628,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     };
     // Intentionally sync when paid workspace inputs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAccess, pdfFile, csvFile, mapping, filenameColumn, flatten, fields, removedFieldNames, supportedFields.length]);
+  }, [cloudSyncReady, pdfFile, csvFile, mapping, filenameColumn, flatten, fields, removedFieldNames, supportedFields.length]);
 
   useEffect(() => {
     const loadLivePricing = async () => {
@@ -674,7 +657,10 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       const returningFromCheckout = Boolean(new URLSearchParams(window.location.search).get("session_id"));
       try {
         const response = await fetch("/api/account/me", { cache: "no-store", credentials: "include" });
-        if (!response.ok) return;
+        if (!response.ok) {
+          setCloudSyncReady(false);
+          return;
+        }
         const me = (await response.json()) as {
           authenticated?: boolean;
           hasAccess?: boolean;
@@ -682,9 +668,10 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           expiresAt?: number;
         };
         if (me.email) setAccountEmail(me.email);
-        if (me.hasAccess && typeof me.expiresAt === "number" && me.expiresAt > Date.now()) {
+        if (me.authenticated && me.hasAccess && typeof me.expiresAt === "number" && me.expiresAt > Date.now()) {
           grantLocalAccess(me.expiresAt);
           setAccountEmail(me.email || null);
+          setCloudSyncReady(true);
           if (!returningFromCheckout) {
             const summary = await refreshCloudSummary();
             if (summary?.hasWorkspace) {
@@ -695,9 +682,12 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           }
         } else if (me.authenticated && me.email) {
           setAccountEmail(me.email);
+          setCloudSyncReady(false);
+        } else {
+          setCloudSyncReady(false);
         }
       } catch {
-        /* ignore */
+        setCloudSyncReady(false);
       }
     };
     void restoreAccess();
@@ -733,10 +723,13 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         if (result.needsAccount && result.email) {
           // Do not unlock until the access account password is created (cross-device requirement).
           setHasAccess(false);
+          setCloudSyncReady(false);
           setAccountPanel("register");
           setNotice("Payment confirmed. Create a password to unlock full batches on this and any other device.");
         } else {
           grantLocalAccess(result.expiresAt, sessionId);
+          // Cookie is set by verify when the account already has a password.
+          void afterPaidSession({ preferCloudFiles: false });
           setNotice("Payment confirmed. Your account unlocks unlimited batches for the paid period.");
         }
         window.history.replaceState({}, "", window.location.pathname);
@@ -785,7 +778,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       setAccountPasswordConfirm("");
       setPendingCheckoutSession(null);
       setNotice(`Account ready for ${result.email}. Your files and generated ZIPs sync to this account for the paid period.`);
-      void afterPaidSession({ preferCloudFiles: true, hasLocalFiles: Boolean(pdfFile || csvFile) });
+      void afterPaidSession({ preferCloudFiles: true });
     } catch (accountError) {
       setError(accountError instanceof Error ? accountError.message : "Account setup failed.");
     } finally {
@@ -820,7 +813,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       setNotice(
         `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}.`,
       );
-      void afterPaidSession({ preferCloudFiles: true, hasLocalFiles: Boolean(pdfFile || csvFile) });
+      void afterPaidSession({ preferCloudFiles: true });
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Sign-in failed.");
     } finally {
@@ -865,7 +858,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         setNotice(
           `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}.`,
         );
-        void afterPaidSession({ preferCloudFiles: true, hasLocalFiles: Boolean(pdfFile || csvFile) });
+        void afterPaidSession({ preferCloudFiles: true });
       }
     } catch (restoreError) {
       setError(restoreError instanceof Error ? restoreError.message : "Purchase restore failed.");
@@ -884,6 +877,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     setHasAccess(false);
     setAccessExpiresAt(null);
     setAccountEmail(null);
+    setCloudSyncReady(false);
     setCloudSummary(null);
     setSavedBatches([]);
     setNotice("Signed out on this browser. Your purchase and saved files remain on your account — sign in again anytime during the paid period.");
@@ -1180,15 +1174,57 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         zipFilename,
         success: true,
       });
-      if (hasAccess || fullBatch) {
-        void pushCloudWorkspace({ force: fullBatch || hasAccess });
-        void uploadCloudBatch(blob, zipFilename, selectedRows.length, fullBatch ? "complete" : "preview");
+      if (cloudSyncReady) {
+        const [workspaceSaved, batchSaved] = await Promise.all([
+          pushCloudWorkspace({ force: true }),
+          (async () => {
+            setCloudBusy("batch");
+            try {
+              const form = new FormData();
+              form.append("file", blob, zipFilename);
+              form.append("pdfCount", String(selectedRows.length));
+              form.append("kind", fullBatch ? "complete" : "preview");
+              const response = await fetch("/api/account/batches", {
+                method: "POST",
+                credentials: "include",
+                body: form,
+              });
+              if (!response.ok) return false;
+              const result = (await response.json()) as { batch?: CloudBatch };
+              if (result.batch) {
+                setSavedBatches((current) =>
+                  [result.batch!, ...current.filter((row) => row.id !== result.batch!.id)].slice(0, 25),
+                );
+              } else {
+                await refreshCloudSummary();
+              }
+              return true;
+            } catch {
+              return false;
+            } finally {
+              setCloudBusy(null);
+            }
+          })(),
+        ]);
+        setNotice(
+          fullBatch
+            ? batchSaved
+              ? `${selectedRows.length} completed PDFs downloaded and saved to your account for re-download.`
+              : `${selectedRows.length} completed PDFs downloaded. Account save failed — sign in again to keep ZIPs for 30 days.`
+            : batchSaved
+              ? `${selectedRows.length} preview PDFs downloaded and saved to your account.`
+              : `${selectedRows.length} preview PDFs downloaded. Account save failed — sign in again to keep them under My files.`,
+        );
+        if (!workspaceSaved && batchSaved) {
+          /* batch saved is enough for re-download promise */
+        }
+      } else {
+        setNotice(
+          fullBatch
+            ? `${selectedRows.length} completed PDFs downloaded as a ZIP archive. Sign in to save them to your account for re-download.`
+            : `${selectedRows.length} preview PDFs downloaded.`,
+        );
       }
-      setNotice(
-        fullBatch
-          ? `${selectedRows.length} completed PDFs downloaded as a ZIP archive and saved to your account for re-download.`
-          : `${selectedRows.length} preview PDFs downloaded${hasAccess ? " and saved to your account" : ""}.`,
-      );
     } catch (generationError) {
       const message =
         generationError instanceof Error ? generationError.message : "The documents could not be generated.";
@@ -1266,7 +1302,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         <div className="topbar-actions">
           <span className="privacy-chip">
             <ShieldCheck size={15} />
-            {hasAccess ? "Paid files sync to your account" : "Free preview stays in your browser"}
+            {cloudSyncReady ? "Paid files sync to your account" : "Free preview stays in your browser"}
           </span>
           {hasAccess && accessUntilLabel ? (
             <span className="access-chip" title={accountEmail || "Paid access"}>
@@ -1430,7 +1466,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
             </button>
           </div>
 
-          {hasAccess && accessUntilLabel ? (
+          {cloudSyncReady && accessUntilLabel ? (
             <div className="message success-message access-banner" role="status">
               <Check size={18} />
               <span>
@@ -1441,7 +1477,21 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
             </div>
           ) : null}
 
-          {hasAccess ? (
+          {hasAccess && !cloudSyncReady && accessUntilLabel ? (
+            <div className="message error-message access-banner" role="status">
+              <CircleAlert size={18} />
+              <span>
+                Paid unlock is active until <strong>{accessUntilLabel}</strong>, but this browser is not signed in for
+                file sync.{" "}
+                <button className="linkish" type="button" onClick={() => setAccountPanel("login")}>
+                  Sign in
+                </button>{" "}
+                to restore and re-download saved ZIPs.
+              </span>
+            </div>
+          ) : null}
+
+          {cloudSyncReady ? (
             <div className="my-files" aria-label="My files">
               <div className="my-files-head">
                 <div>

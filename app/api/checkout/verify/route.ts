@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withAdminDb, recordPaidCheckout, pricingPlans, and, eq } from "../../../../lib/admin-data";
 import { findCustomerByEmail } from "../../../../lib/customer-access";
+import {
+  createCustomerSessionToken,
+  customerSessionCookieHeader,
+} from "../../../../lib/customer-auth";
 
 const DEFAULT_DURATION_DAYS = 30;
 const DEFAULT_PRODUCT = "formbatch_30_day_access";
@@ -86,8 +90,9 @@ export async function GET(request: NextRequest) {
 
   const email = (session.customer_details?.email || session.customer_email || "").trim().toLowerCase() || null;
   let needsAccount = Boolean(email);
+  let sessionToken: string | null = null;
   try {
-    await withAdminDb(async (db) => {
+    const persisted = await withAdminDb(async (db) => {
       await recordPaidCheckout(db, {
         sessionId,
         paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
@@ -100,21 +105,31 @@ export async function GET(request: NextRequest) {
         durationDays,
         productKey,
       });
-      if (email) {
-        const customer = await findCustomerByEmail(db, email);
-        needsAccount = !customer?.passwordHash;
-      } else {
-        needsAccount = false;
+      if (!email) {
+        return { needsAccount: false as const, token: null as string | null };
       }
+      const customer = await findCustomerByEmail(db, email);
+      if (!customer?.passwordHash) {
+        return { needsAccount: true as const, token: null as string | null };
+      }
+      // Returning paid accounts get a session so workspace/batch sync works immediately after Stripe.
+      const token = await createCustomerSessionToken({ customerId: customer.id, email });
+      return { needsAccount: false as const, token };
     });
+    needsAccount = persisted.needsAccount;
+    sessionToken = persisted.token;
   } catch (error) {
     console.error("Failed to persist checkout entitlement", error);
   }
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     paid: true,
     expiresAt,
     email,
     needsAccount,
   });
+  if (sessionToken) {
+    response.headers.set("Set-Cookie", customerSessionCookieHeader(sessionToken));
+  }
+  return response;
 }

@@ -3,6 +3,7 @@ import {
   requireAdmin,
   writeAudit,
   entitlements,
+  upsertCustomer,
   desc,
   eq,
   sql,
@@ -47,11 +48,20 @@ export async function POST(request: NextRequest) {
     const days = Math.max(1, Math.min(365, body.days || 30));
     const startsAt = new Date(now).toISOString();
     const endsAt = new Date(now + days * 86400000).toISOString();
+    const email = body.email?.trim().toLowerCase() || null;
+    if (!email && !body.deviceId) {
+      return NextResponse.json({ error: "Email or device id is required to grant access." }, { status: 400 });
+    }
+    const customerId = await upsertCustomer(auth.db, {
+      deviceId: body.deviceId || `manual-${Date.now()}`,
+      email,
+    });
     const inserted = await auth.db
       .insert(entitlements)
       .values({
+        customerId,
         deviceId: body.deviceId || null,
-        email: body.email?.toLowerCase() || null,
+        email,
         source: "manual",
         status: "active",
         startsAt,
