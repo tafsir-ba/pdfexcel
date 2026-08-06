@@ -50,7 +50,8 @@ test("includes legal routes and removes starter preview assets", async () => {
   ]);
   assert.equal(privacy.status, 200);
   assert.equal(terms.status, 200);
-  assert.match(await privacy.text(), /PDF and spreadsheet contents are processed locally/);
+  assert.match(await privacy.text(), /Paid account files/i);
+  assert.match(await privacy.text(), /generated ZIP archives/i);
   assert.match(await terms.text(), /payment unlocks unlimited batches/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
@@ -62,7 +63,7 @@ test("admin login page is served for operators", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Admin sign in/i);
-  assert.match(html, /File contents are never stored/i);
+  assert.match(html, /Admin views never show file contents/i);
 });
 
 test("production webhook rejects missing STRIPE_WEBHOOK_SECRET", async () => {

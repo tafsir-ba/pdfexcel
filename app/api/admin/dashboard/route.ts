@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
   const generationVolume = usageRows.reduce((sum, row) => sum + row.pdfsGenerated, 0);
 
   return NextResponse.json({
-    privacyNote: "File contents are never stored. This dashboard shows payments, entitlements, and generation metadata only.",
+    privacyNote: "Admin views never show file contents. This dashboard shows payments, entitlements, and generation metadata only.",
     revenueCents,
     successfulPayments: paidRows.length,
     failedPayments: failedRows.length,

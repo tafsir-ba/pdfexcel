@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request, "pricing:read");
   if (auth instanceof Response) return auth;
   const plans = await auth.db.select().from(pricingPlans).orderBy(desc(pricingPlans.createdAt));
-  return NextResponse.json({ plans, privacyNote: "File contents are never stored." });
+  return NextResponse.json({ plans, privacyNote: "Admin views never show file contents." });
 }
 
 export async function POST(request: NextRequest) {

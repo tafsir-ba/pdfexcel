@@ -62,7 +62,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           <strong>PDF Batch</strong>
           <span>Admin · observability</span>
         </div>
-        <p className="admin-privacy">File contents are never stored.</p>
+        <p className="admin-privacy">Admin views never show file contents.</p>
         <nav>
           {visibleNav.map((item) => (
             <Link

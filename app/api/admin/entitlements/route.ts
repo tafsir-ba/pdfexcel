@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
           ? "expired"
           : "active",
   }));
-  return NextResponse.json({ entitlements: rows, privacyNote: "File contents are never stored." });
+  return NextResponse.json({ entitlements: rows, privacyNote: "Admin views never show file contents." });
 }
 
 export async function POST(request: NextRequest) {

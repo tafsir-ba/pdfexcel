@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     );
   }
   return NextResponse.json({
-    privacyNote: "File contents are never stored. Only hashed/sanitized filenames and counts are kept.",
+    privacyNote: "Admin views never show file contents. Only hashed/sanitized filenames and counts are kept.",
     events: rows,
   });
 }

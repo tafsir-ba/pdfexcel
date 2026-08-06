@@ -50,7 +50,7 @@ export default function AdminUsagePage() {
       <div className="admin-header">
         <div>
           <h1>Usage / generation metadata</h1>
-          <p><strong>File contents are never stored.</strong> Only counts, hashes, and sanitized filenames.</p>
+          <p><strong>Admin views never show file contents.</strong> Only counts, hashes, and sanitized filenames.</p>
         </div>
       </div>
       <div className="admin-toolbar">

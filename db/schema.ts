@@ -16,7 +16,7 @@ export const adminUsers = sqliteTable(
   (table) => [uniqueIndex("admin_users_email_uidx").on(table.email)],
 );
 
-/** End customers identified by email account and/or device — never file contents. */
+/** End customers identified by email account and/or device. */
 export const customers = sqliteTable(
   "customers",
   {

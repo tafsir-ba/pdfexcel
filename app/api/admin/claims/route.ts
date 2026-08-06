@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       ? await auth.db.select().from(usageEvents).where(eq(usageEvents.deviceId, claim.deviceId)).orderBy(desc(usageEvents.createdAt)).limit(20)
       : [];
     return NextResponse.json({
-      privacyNote: "File contents are never stored.",
+      privacyNote: "Admin views never show file contents.",
       claim,
       notes,
       transactions: tx,
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
         row.subject.toLowerCase().includes(q),
     );
   }
-  return NextResponse.json({ claims: rows, privacyNote: "File contents are never stored." });
+  return NextResponse.json({ claims: rows, privacyNote: "Admin views never show file contents." });
 }
 
 export async function POST(request: NextRequest) {

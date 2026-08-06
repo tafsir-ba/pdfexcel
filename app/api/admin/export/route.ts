@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({
-    privacyNote: "File contents are never stored. Export contains payment, entitlement, usage metadata, claims, and admin notes only.",
+    privacyNote: "Admin views never show file contents. Export contains payment, entitlement, usage metadata, claims, and admin notes only.",
     exportedAt: new Date().toISOString(),
     customers: customerRows,
     transactions: tx,

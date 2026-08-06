@@ -34,6 +34,7 @@ import {
   Sparkles,
   Upload,
   UserRound,
+  FolderOpen,
   X,
   Zap,
 } from "lucide-react";
@@ -208,6 +209,49 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(value: string) {
+  const cleaned = value.includes(",") ? value.slice(value.indexOf(",") + 1) : value;
+  const binary = atob(cleaned);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+type CloudBatch = {
+  id: string;
+  filename: string;
+  pdfCount: number;
+  kind: "preview" | "complete";
+  createdAt: string;
+  bytes: number;
+};
+
+type CloudWorkspaceSummary = {
+  hasWorkspace: boolean;
+  pdfName: string | null;
+  csvName: string | null;
+  updatedAt: string | null;
+  batches: CloudBatch[];
+};
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function getDeviceId() {
   const existing = localStorage.getItem(DEVICE_KEY);
   if (existing) return existing;
@@ -283,6 +327,9 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   const [accountPasswordConfirm, setAccountPasswordConfirm] = useState("");
   const [loginEmail, setLoginEmail] = useState("");
   const [receiptSession, setReceiptSession] = useState("");
+  const [savedBatches, setSavedBatches] = useState<CloudBatch[]>([]);
+  const [cloudSummary, setCloudSummary] = useState<Omit<CloudWorkspaceSummary, "batches"> | null>(null);
+  const [cloudBusy, setCloudBusy] = useState<"loading" | "saving" | "batch" | null>(null);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
   const [livePricing, setLivePricing] = useState<LivePricing>(
@@ -297,6 +344,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   /** Applied once after PDF re-detect following Stripe workspace restore. */
   const pendingPlacementsRef = useRef<Record<string, StaticPlacement> | null>(null);
   const pendingRemovedRef = useRef<string[] | null>(null);
+  const skipCloudAutosaveRef = useRef(false);
+  const cloudAutosaveTimerRef = useRef<number | null>(null);
 
   const freeRows = Math.max(1, livePricing.freeGenerationLimit || DEFAULT_FREE_ROWS);
   const durationDays = livePricing.durationDays || DEFAULT_DURATION_DAYS;
@@ -396,6 +445,208 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     setFlatten(saved.flatten);
   };
 
+  const applyCloudWorkspace = (workspace: {
+    pdfName: string;
+    csvName: string;
+    pdfBase64: string;
+    csvBase64: string;
+    mapping: Record<string, string>;
+    filenameColumn: string;
+    flatten: boolean;
+    fieldPlacements?: Record<string, StaticPlacement>;
+    removedFieldNames?: string[];
+  }) => {
+    skipCloudAutosaveRef.current = true;
+    pendingPlacementsRef.current = (workspace.fieldPlacements as Record<string, StaticPlacement> | undefined) || null;
+    pendingRemovedRef.current = workspace.removedFieldNames || null;
+    setRemovedFieldNames(workspace.removedFieldNames || []);
+    setPdfFile(new File([base64ToArrayBuffer(workspace.pdfBase64)], workspace.pdfName, { type: "application/pdf" }));
+    setCsvFile(new File([base64ToArrayBuffer(workspace.csvBase64)], workspace.csvName, { type: "text/csv" }));
+    setMapping(workspace.mapping || {});
+    setFilenameColumn(workspace.filenameColumn || "");
+    setFlatten(Boolean(workspace.flatten));
+    window.setTimeout(() => {
+      skipCloudAutosaveRef.current = false;
+    }, 2500);
+  };
+
+  const refreshCloudSummary = async () => {
+    try {
+      const response = await fetch("/api/account/workspace?summary=1", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 402) {
+          setCloudSummary(null);
+          setSavedBatches([]);
+        }
+        return null;
+      }
+      const result = (await response.json()) as CloudWorkspaceSummary & { ok?: boolean };
+      setCloudSummary({
+        hasWorkspace: Boolean(result.hasWorkspace),
+        pdfName: result.pdfName || null,
+        csvName: result.csvName || null,
+        updatedAt: result.updatedAt || null,
+      });
+      setSavedBatches(Array.isArray(result.batches) ? result.batches : []);
+      return result;
+    } catch {
+      return null;
+    }
+  };
+
+  const loadCloudWorkspace = async (opts?: { quiet?: boolean }) => {
+    setCloudBusy("loading");
+    try {
+      const response = await fetch("/api/account/workspace", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (response.status === 404) {
+        await refreshCloudSummary();
+        if (!opts?.quiet) setNotice("No saved PDF/CSV on this account yet. Upload files and they will sync automatically.");
+        return false;
+      }
+      const result = (await response.json()) as {
+        ok?: boolean;
+        workspace?: Parameters<typeof applyCloudWorkspace>[0];
+        error?: string;
+      };
+      if (!response.ok || !result.workspace) {
+        throw new Error(result.error || "Saved files could not be loaded.");
+      }
+      applyCloudWorkspace(result.workspace);
+      await refreshCloudSummary();
+      if (!opts?.quiet) {
+        setNotice(
+          `Restored ${result.workspace.pdfName} and ${result.workspace.csvName} from your account. Generated ZIPs stay available under My files.`,
+        );
+      }
+      return true;
+    } catch (cloudError) {
+      if (!opts?.quiet) {
+        setError(cloudError instanceof Error ? cloudError.message : "Saved files could not be loaded.");
+      }
+      return false;
+    } finally {
+      setCloudBusy(null);
+    }
+  };
+
+  const pushCloudWorkspace = async (opts?: { force?: boolean }) => {
+    if ((!hasAccess && !opts?.force) || !pdfFile || !csvFile) return false;
+    if (skipCloudAutosaveRef.current) return false;
+    try {
+      const response = await fetch("/api/account/workspace", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          pdfName: pdfFile.name,
+          csvName: csvFile.name,
+          pdfBase64: arrayBufferToBase64(await pdfFile.arrayBuffer()),
+          csvBase64: arrayBufferToBase64(await csvFile.arrayBuffer()),
+          mapping,
+          filenameColumn,
+          flatten,
+          fieldPlacements: fieldPlacementsFromFields(fields),
+          removedFieldNames,
+        }),
+      });
+      if (!response.ok) return false;
+      const result = (await response.json()) as { updatedAt?: string };
+      setCloudSummary({
+        hasWorkspace: true,
+        pdfName: pdfFile.name,
+        csvName: csvFile.name,
+        updatedAt: result.updatedAt || new Date().toISOString(),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const uploadCloudBatch = async (blob: Blob, filename: string, pdfCount: number, kind: "preview" | "complete") => {
+    setCloudBusy("batch");
+    try {
+      const form = new FormData();
+      form.append("file", blob, filename);
+      form.append("pdfCount", String(pdfCount));
+      form.append("kind", kind);
+      const response = await fetch("/api/account/batches", {
+        method: "POST",
+        credentials: "include",
+        body: form,
+      });
+      if (!response.ok) return;
+      const result = (await response.json()) as { batch?: CloudBatch };
+      if (result.batch) {
+        setSavedBatches((current) => [result.batch!, ...current.filter((row) => row.id !== result.batch!.id)].slice(0, 25));
+      } else {
+        await refreshCloudSummary();
+      }
+    } catch {
+      /* soft-fail — local download already succeeded */
+    } finally {
+      setCloudBusy(null);
+    }
+  };
+
+  const downloadCloudBatch = async (batch: CloudBatch) => {
+    setCloudBusy("loading");
+    setError("");
+    try {
+      const response = await fetch(`/api/account/batches/${encodeURIComponent(batch.id)}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const result = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(result.error || "Batch could not be downloaded.");
+      }
+      downloadBlob(await response.blob(), batch.filename);
+      setNotice(`Re-downloaded ${batch.filename}.`);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "Batch download failed.");
+    } finally {
+      setCloudBusy(null);
+    }
+  };
+
+  const afterPaidSession = async (opts?: { preferCloudFiles?: boolean; hasLocalFiles?: boolean }) => {
+    const summary = await refreshCloudSummary();
+    if (!opts?.preferCloudFiles) return;
+    if (opts.hasLocalFiles) return;
+    if (summary?.hasWorkspace) {
+      await loadCloudWorkspace({ quiet: true });
+      setNotice(
+        `Signed in. Restored your saved files${
+          summary.batches?.length ? ` and ${summary.batches.length} generated batch${summary.batches.length === 1 ? "" : "es"}` : ""
+        }.`,
+      );
+    } else if (summary?.batches?.length) {
+      setNotice(
+        `Signed in. ${summary.batches.length} previously generated ZIP${summary.batches.length === 1 ? "" : "s"} available under My files.`,
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (!hasAccess || !pdfFile || !csvFile || !supportedFields.length) return;
+    if (skipCloudAutosaveRef.current) return;
+    if (cloudAutosaveTimerRef.current) window.clearTimeout(cloudAutosaveTimerRef.current);
+    cloudAutosaveTimerRef.current = window.setTimeout(() => {
+      void pushCloudWorkspace({ force: true });
+    }, 1800);
+    return () => {
+      if (cloudAutosaveTimerRef.current) window.clearTimeout(cloudAutosaveTimerRef.current);
+    };
+    // Intentionally sync when paid workspace inputs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAccess, pdfFile, csvFile, mapping, filenameColumn, flatten, fields, removedFieldNames, supportedFields.length]);
+
   useEffect(() => {
     const loadLivePricing = async () => {
       try {
@@ -420,6 +671,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
 
     const restoreAccess = async () => {
       setHasAccess(Boolean(readStoredAccess()));
+      const returningFromCheckout = Boolean(new URLSearchParams(window.location.search).get("session_id"));
       try {
         const response = await fetch("/api/account/me", { cache: "no-store", credentials: "include" });
         if (!response.ok) return;
@@ -433,6 +685,14 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         if (me.hasAccess && typeof me.expiresAt === "number" && me.expiresAt > Date.now()) {
           grantLocalAccess(me.expiresAt);
           setAccountEmail(me.email || null);
+          if (!returningFromCheckout) {
+            const summary = await refreshCloudSummary();
+            if (summary?.hasWorkspace) {
+              await loadCloudWorkspace({ quiet: true });
+            }
+          } else {
+            void refreshCloudSummary();
+          }
         } else if (me.authenticated && me.email) {
           setAccountEmail(me.email);
         }
@@ -522,7 +782,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       setAccountPassword("");
       setAccountPasswordConfirm("");
       setPendingCheckoutSession(null);
-      setNotice(`Account ready for ${result.email}. Sign in on any device during your paid access.`);
+      setNotice(`Account ready for ${result.email}. Your files and generated ZIPs sync to this account for the paid period.`);
+      void afterPaidSession({ preferCloudFiles: true, hasLocalFiles: Boolean(pdfFile || csvFile) });
     } catch (accountError) {
       setError(accountError instanceof Error ? accountError.message : "Account setup failed.");
     } finally {
@@ -555,8 +816,9 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       setLoginEmail("");
       setReceiptSession("");
       setNotice(
-        `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}. Upload your PDF and CSV on this computer to generate — files are not synced between devices.`,
+        `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}.`,
       );
+      void afterPaidSession({ preferCloudFiles: true, hasLocalFiles: Boolean(pdfFile || csvFile) });
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Sign-in failed.");
     } finally {
@@ -599,8 +861,9 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       } else {
         setAccountPanel(null);
         setNotice(
-          `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}. Upload your PDF and CSV on this computer to generate.`,
+          `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}.`,
         );
+        void afterPaidSession({ preferCloudFiles: true, hasLocalFiles: Boolean(pdfFile || csvFile) });
       }
     } catch (restoreError) {
       setError(restoreError instanceof Error ? restoreError.message : "Purchase restore failed.");
@@ -619,7 +882,9 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     setHasAccess(false);
     setAccessExpiresAt(null);
     setAccountEmail(null);
-    setNotice("Signed out on this browser. Your purchase remains available — sign in again anytime during the paid period.");
+    setCloudSummary(null);
+    setSavedBatches([]);
+    setNotice("Signed out on this browser. Your purchase and saved files remain on your account — sign in again anytime during the paid period.");
   };
 
   useEffect(() => {
@@ -913,10 +1178,14 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         zipFilename,
         success: true,
       });
+      if (hasAccess || fullBatch) {
+        void pushCloudWorkspace({ force: fullBatch || hasAccess });
+        void uploadCloudBatch(blob, zipFilename, selectedRows.length, fullBatch ? "complete" : "preview");
+      }
       setNotice(
         fullBatch
-          ? `${selectedRows.length} completed PDFs downloaded as a ZIP archive.`
-          : `${selectedRows.length} preview PDFs downloaded.`,
+          ? `${selectedRows.length} completed PDFs downloaded as a ZIP archive and saved to your account for re-download.`
+          : `${selectedRows.length} preview PDFs downloaded${hasAccess ? " and saved to your account" : ""}.`,
       );
     } catch (generationError) {
       const message =
@@ -993,7 +1262,10 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           <span>PDF Batch</span>
         </a>
         <div className="topbar-actions">
-          <span className="privacy-chip"><ShieldCheck size={15} /> Files stay on your device</span>
+          <span className="privacy-chip">
+            <ShieldCheck size={15} />
+            {hasAccess ? "Paid files sync to your account" : "Free preview stays in your browser"}
+          </span>
           {hasAccess && accessUntilLabel ? (
             <span className="access-chip" title={accountEmail || "Paid access"}>
               <LockKeyhole size={14} /> Paid until {accessUntilLabel}
@@ -1032,8 +1304,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
               <>
                 <p>
                   Payment is confirmed for <strong>{accountEmail}</strong>. Set a password now to unlock full batches
-                  on this device and any other device for {durationDays} days. PDF and CSV files still never leave your
-                  browser.
+                  on this device and any other device for {durationDays} days. Your PDF, CSV, mappings, and generated
+                  ZIPs sync to this account during the paid period.
                 </p>
                 <label>
                   Password
@@ -1063,8 +1335,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
             ) : (
               <>
                 <p>
-                  Your purchase unlocks unlimited batches until it expires. Files are not stored in your account — after
-                  restoring access, upload the PDF and CSV again on this computer.
+                  Your purchase unlocks unlimited batches until it expires. Sign in to restore access, your PDF/CSV
+                  workspace, and previously generated ZIP downloads on any computer.
                 </p>
                 <label>
                   Email
@@ -1118,7 +1390,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           </p>
           <div className="trust-row">
             <span><Check size={16} /> No Acrobat</span>
-            <span><Check size={16} /> No uploads</span>
+            <span><Check size={16} /> Account re-download</span>
             <span><Check size={16} /> Generate 3 PDFs free</span>
           </div>
         </div>
@@ -1161,9 +1433,66 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
               <Check size={18} />
               <span>
                 Your purchase is active until <strong>{accessUntilLabel}</strong>
-                {accountEmail ? <> ({accountEmail})</> : null}. Upload your files on this computer to generate unlimited
-                batches — PDFs and spreadsheets are not synced between devices.
+                {accountEmail ? <> ({accountEmail})</> : null}. PDF, CSV, mappings, and generated ZIPs sync to your
+                account so you can reopen and re-download them anytime during the paid period.
               </span>
+            </div>
+          ) : null}
+
+          {hasAccess ? (
+            <div className="my-files" aria-label="My files">
+              <div className="my-files-head">
+                <div>
+                  <h3><FolderOpen size={16} /> My files</h3>
+                  <p>
+                    {cloudSummary?.hasWorkspace
+                      ? `Saved workspace: ${cloudSummary.pdfName || "PDF"} + ${cloudSummary.csvName || "CSV"}${
+                          cloudSummary.updatedAt
+                            ? ` · updated ${new Date(cloudSummary.updatedAt).toLocaleString()}`
+                            : ""
+                        }`
+                      : "Upload a PDF and CSV — they sync automatically while you are signed in."}
+                  </p>
+                </div>
+                <div className="my-files-actions">
+                  {cloudSummary?.hasWorkspace ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={Boolean(busy || cloudBusy)}
+                      onClick={() => void loadCloudWorkspace()}
+                    >
+                      {cloudBusy === "loading" ? <RefreshCw className="spin" size={16} /> : <FolderOpen size={16} />}
+                      Restore saved files
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              {savedBatches.length ? (
+                <ul className="batch-list">
+                  {savedBatches.map((batch) => (
+                    <li key={batch.id}>
+                      <div>
+                        <strong>{batch.filename}</strong>
+                        <small>
+                          {batch.kind === "preview" ? "Preview" : "Complete"} · {batch.pdfCount} PDFs ·{" "}
+                          {formatBytes(batch.bytes)} · {new Date(batch.createdAt).toLocaleString()}
+                        </small>
+                      </div>
+                      <button
+                        className="text-button"
+                        type="button"
+                        disabled={Boolean(cloudBusy)}
+                        onClick={() => void downloadCloudBatch(batch)}
+                      >
+                        <Download size={15} /> Re-download
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="my-files-empty">Generated ZIPs appear here after you download a batch, for re-access during your paid period.</p>
+              )}
             </div>
           ) : null}
 
@@ -1435,7 +1764,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
               </div>
               <p className="payment-note">
                 One payment unlocks unlimited batches for {durationDays} days. After checkout, create a password so you can
-                restore the purchase on any device. Your PDF/CSV stay on each computer and are never uploaded.
+                restore access, your files, and generated ZIPs on any device during the paid period.
                 {!hasAccess && (
                   <>
                     {" "}
@@ -1460,13 +1789,17 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       <section className="proof-band">
         <div>
           <ShieldCheck size={24} />
-          <h2>Your files stay private.</h2>
-          <p>PDF and spreadsheet processing happens inside your browser. PDF Batch never receives or stores the contents of your files.</p>
+          <h2>Paid access includes your files.</h2>
+          <p>
+            Free preview processing stays in your browser. With a paid account, your PDF template, spreadsheet,
+            mappings, and generated ZIP archives sync so you can reopen and re-download them anytime during the paid
+            period.
+          </p>
         </div>
         <div className="proof-facts">
-          <span><strong>0</strong> files uploaded</span>
+          <span><strong>Account</strong> restore anywhere</span>
           <span><strong>250</strong> PDFs per batch</span>
-          <span><strong>{durationDays} days</strong> account access</span>
+          <span><strong>{durationDays} days</strong> file re-access</span>
         </div>
       </section>
 

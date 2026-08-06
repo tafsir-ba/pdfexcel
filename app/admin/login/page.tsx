@@ -35,7 +35,7 @@ export default function AdminLoginPage() {
     <div className="admin-login">
       <div className="admin-login-card">
         <h1>Admin sign in</h1>
-        <p>Transaction and entitlement observability. File contents are never stored.</p>
+        <p>Transaction and entitlement observability. Admin views never show file contents.</p>
         <form className="admin-form" onSubmit={onSubmit}>
           <label>
             Email

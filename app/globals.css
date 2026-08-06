@@ -469,6 +469,67 @@ h1, h2, h3, p { margin-top: 0; }
 .access-banner {
   margin-bottom: 14px;
 }
+.my-files {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--green-soft) 55%, white);
+}
+.my-files-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.my-files-head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.my-files-head p,
+.my-files-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.my-files-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.batch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.batch-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: white;
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.batch-list strong {
+  display: block;
+  font-size: 13px;
+}
+.batch-list small {
+  color: var(--muted);
+  font-size: 11px;
+}
 .account-divider {
   margin: 4px 0;
   color: var(--muted);

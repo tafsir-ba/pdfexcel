@@ -24,6 +24,7 @@ import {
   type AdminSession,
   verifyPassword,
 } from "./admin-auth";
+import { deleteCustomerWorkspace, listWorkspaceCustomerIds } from "./customer-workspace";
 
 export async function withAdminDb<T>(fn: (db: AppDb) => Promise<T>) {
   await ensureSchema();
@@ -59,6 +60,29 @@ export async function enforceRetention(db: AppDb, nowMs = Date.now()) {
   await db.delete(usageEvents).where(lt(usageEvents.createdAt, cutoff));
   await db.delete(webhookEvents).where(lt(webhookEvents.createdAt, cutoff));
   await db.delete(adminAuditLogs).where(lt(adminAuditLogs.createdAt, cutoff));
+
+  // Remove paid-account file sync once no active entitlement remains.
+  const nowIsoForFiles = new Date(nowMs).toISOString();
+  const workspaceIds = await listWorkspaceCustomerIds();
+  for (const rawId of workspaceIds) {
+    const customerId = Number(rawId);
+    if (!Number.isFinite(customerId)) continue;
+    const [active] = await db
+      .select({ id: entitlements.id })
+      .from(entitlements)
+      .where(
+        and(
+          eq(entitlements.customerId, customerId),
+          eq(entitlements.status, "active"),
+          gte(entitlements.endsAt, nowIsoForFiles),
+        ),
+      )
+      .limit(1);
+    if (!active) {
+      await deleteCustomerWorkspace(customerId);
+    }
+  }
+
   return { skipped: false as const, cutoff, days };
 }
 

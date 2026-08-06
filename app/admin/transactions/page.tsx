@@ -67,7 +67,7 @@ export default function AdminTransactionsPage() {
       <div className="admin-header">
         <div>
           <h1>Transactions</h1>
-          <p>Search payments by email, Stripe session/payment/customer id, or device id. File contents are never stored.</p>
+          <p>Search payments by email, Stripe session/payment/customer id, or device id. Admin views never show file contents.</p>
         </div>
       </div>
       <div className="admin-toolbar">

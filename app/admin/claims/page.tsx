@@ -118,7 +118,7 @@ function ClaimsInner() {
       <div className="admin-header">
         <div>
           <h1>Claims / support evidence</h1>
-          <p>Investigate with payment, access, and generation metadata only. File contents are never stored.</p>
+          <p>Investigate with payment, access, and generation metadata only. Admin views never show file contents.</p>
         </div>
       </div>
       <form className="admin-panel admin-form" onSubmit={createClaim}>

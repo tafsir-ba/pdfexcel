@@ -44,7 +44,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     : [];
 
   return NextResponse.json({
-    privacyNote: "File contents are never stored.",
+    privacyNote: "Admin views never show file contents.",
     transaction: tx,
     entitlements: relatedEntitlements,
     notes,
