@@ -4,6 +4,7 @@ import {
   recordPaidCheckout,
   webhookEvents,
   transactions,
+  entitlements,
   pricingPlans,
   and,
   eq,
@@ -35,8 +36,13 @@ async function verifyStripeSignature(payload: string, header: string | null, sec
 export async function POST(request: NextRequest) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   const payload = await request.text();
+  const isProd = process.env.NODE_ENV === "production";
 
-  if (secret) {
+  if (!secret) {
+    if (isProd) {
+      return NextResponse.json({ error: "STRIPE_WEBHOOK_SECRET is required in production." }, { status: 503 });
+    }
+  } else {
     const valid = await verifyStripeSignature(payload, request.headers.get("stripe-signature"), secret);
     if (!valid) {
       return NextResponse.json({ error: "Invalid signature." }, { status: 400 });
@@ -111,6 +117,43 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      if (event.type === "payment_intent.payment_failed") {
+        const intent = event.data?.object as {
+          id?: string;
+          amount?: number;
+          currency?: string;
+          customer?: string;
+          metadata?: { device_id?: string };
+          last_payment_error?: { message?: string };
+        };
+        if (intent?.id) {
+          const [existingTx] = await db
+            .select()
+            .from(transactions)
+            .where(eq(transactions.providerPaymentId, intent.id))
+            .limit(1);
+          if (!existingTx) {
+            await db.insert(transactions).values({
+              provider: "stripe",
+              providerPaymentId: intent.id,
+              deviceId: intent.metadata?.device_id || null,
+              amountCents: intent.amount ?? 0,
+              currency: intent.currency || "usd",
+              status: "failed",
+              rawSummary: JSON.stringify({
+                error: intent.last_payment_error?.message || "payment_intent.payment_failed",
+                stripeCustomerId: intent.customer || null,
+              }),
+            });
+          } else if (existingTx.status === "pending") {
+            await db
+              .update(transactions)
+              .set({ status: "failed", updatedAt: sql`CURRENT_TIMESTAMP` })
+              .where(eq(transactions.id, existingTx.id));
+          }
+        }
+      }
+
       if (event.type === "charge.refunded" || event.type === "charge.dispute.created") {
         const charge = event.data?.object as {
           payment_intent?: string;
@@ -118,14 +161,38 @@ export async function POST(request: NextRequest) {
           amount?: number;
         };
         if (charge?.payment_intent) {
-          await db
-            .update(transactions)
-            .set({
-              status: event.type === "charge.dispute.created" ? "disputed" : "refunded",
-              refundedAmountCents: charge.amount_refunded ?? charge.amount ?? 0,
-              updatedAt: sql`CURRENT_TIMESTAMP`,
-            })
-            .where(eq(transactions.providerPaymentId, charge.payment_intent));
+          const [tx] = await db
+            .select()
+            .from(transactions)
+            .where(eq(transactions.providerPaymentId, charge.payment_intent))
+            .limit(1);
+          if (tx) {
+            const refundedAmount = charge.amount_refunded ?? charge.amount ?? 0;
+            const status =
+              event.type === "charge.dispute.created"
+                ? "disputed"
+                : refundedAmount > 0 && refundedAmount < tx.amountCents
+                  ? "partially_refunded"
+                  : "refunded";
+            await db
+              .update(transactions)
+              .set({
+                status,
+                refundedAmountCents: refundedAmount,
+                updatedAt: sql`CURRENT_TIMESTAMP`,
+              })
+              .where(eq(transactions.id, tx.id));
+            if (status === "refunded" || status === "disputed") {
+              await db
+                .update(entitlements)
+                .set({
+                  status: "revoked",
+                  reason: event.type,
+                  updatedAt: sql`CURRENT_TIMESTAMP`,
+                })
+                .where(and(eq(entitlements.transactionId, tx.id), eq(entitlements.status, "active")));
+            }
+          }
         }
       }
 

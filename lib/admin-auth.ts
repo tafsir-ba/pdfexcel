@@ -55,7 +55,12 @@ export type AdminSession = {
 };
 
 function sessionSecret() {
-  return process.env.ADMIN_SESSION_SECRET || process.env.STRIPE_SECRET_KEY || "dev-admin-secret";
+  const dedicated = process.env.ADMIN_SESSION_SECRET?.trim();
+  if (dedicated) return dedicated;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("ADMIN_SESSION_SECRET is required in production.");
+  }
+  return process.env.STRIPE_SECRET_KEY || "dev-admin-secret";
 }
 
 async function sign(payload: string) {
@@ -94,13 +99,15 @@ export async function readSessionToken(token: string | undefined | null): Promis
 
 export const SESSION_COOKIE = "formbatch_admin_session";
 
-export function sessionCookieHeader(token: string, secure = process.env.NODE_ENV === "production") {
-  const secureFlag = secure ? "; Secure" : "";
+export function sessionCookieHeader(token: string, secure?: boolean) {
+  const useSecure = secure ?? process.env.NODE_ENV === "production";
+  const secureFlag = useSecure ? "; Secure" : "";
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${12 * 60 * 60}${secureFlag}`;
 }
 
-export function clearSessionCookieHeader(secure = process.env.NODE_ENV === "production") {
-  const secureFlag = secure ? "; Secure" : "";
+export function clearSessionCookieHeader(secure?: boolean) {
+  const useSecure = secure ?? process.env.NODE_ENV === "production";
+  const secureFlag = useSecure ? "; Secure" : "";
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag}`;
 }
 
@@ -148,4 +155,8 @@ const ROLE_PERMISSIONS: Record<AdminRole, Set<string>> = {
 export function can(role: AdminRole, permission: string) {
   const grants = ROLE_PERMISSIONS[role];
   return grants.has("*") || grants.has(permission);
+}
+
+export function rolePermissions(role: AdminRole): string[] {
+  return [...ROLE_PERMISSIONS[role]];
 }

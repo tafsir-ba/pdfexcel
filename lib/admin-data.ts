@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { ensureSchema, getDb, type AppDb } from "../db";
 import {
   adminAuditLogs,
@@ -31,7 +31,35 @@ export async function withAdminDb<T>(fn: (db: AppDb) => Promise<T>) {
   await bootstrapAdmin(db);
   await bootstrapPricing(db);
   await seedDemoIfRequested(db);
+  await enforceRetention(db);
   return fn(db);
+}
+
+let lastRetentionRunMs = 0;
+
+/** Purge aged observability rows per configurable retention_days. */
+export async function enforceRetention(db: AppDb, nowMs = Date.now()) {
+  if (nowMs - lastRetentionRunMs < 60_000) return { skipped: true as const };
+  lastRetentionRunMs = nowMs;
+  const [setting] = await db
+    .select()
+    .from(appSettings)
+    .where(eq(appSettings.key, "retention_days"))
+    .limit(1);
+  const days = Math.max(30, Number.parseInt(setting?.value || "730", 10) || 730);
+  const cutoff = new Date(nowMs - days * 86_400_000).toISOString();
+  const nowIso = new Date(nowMs).toISOString();
+  // Expire wall-clock access windows (dashboard expired metric).
+  await db
+    .update(entitlements)
+    .set({ status: "expired", updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(and(eq(entitlements.status, "active"), lt(entitlements.endsAt, nowIso)));
+  // Purge aged metadata/audit after retention window. Payment rows are retained
+  // for the full window and not hard-deleted here (referential safety).
+  await db.delete(usageEvents).where(lt(usageEvents.createdAt, cutoff));
+  await db.delete(webhookEvents).where(lt(webhookEvents.createdAt, cutoff));
+  await db.delete(adminAuditLogs).where(lt(adminAuditLogs.createdAt, cutoff));
+  return { skipped: false as const, cutoff, days };
 }
 
 async function bootstrapAdmin(db: AppDb) {
@@ -378,5 +406,6 @@ export {
   desc,
   eq,
   gte,
+  lt,
   sql,
 };

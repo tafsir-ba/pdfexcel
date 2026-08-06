@@ -60,6 +60,59 @@ test("admin login page is served for operators", async () => {
   assert.match(html, /File contents are never stored/i);
 });
 
+test("production webhook rejects missing STRIPE_WEBHOOK_SECRET", async () => {
+  const previousEnv = process.env.NODE_ENV;
+  const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  process.env.NODE_ENV = "production";
+  delete process.env.STRIPE_WEBHOOK_SECRET;
+  try {
+    const worker = await loadWorker("webhook-prod-secret");
+    const response = await worker.fetch(
+      new Request("http://localhost/api/checkout/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "evt_test", type: "ping" }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /STRIPE_WEBHOOK_SECRET/);
+  } finally {
+    process.env.NODE_ENV = previousEnv;
+    if (previousSecret) process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+    else delete process.env.STRIPE_WEBHOOK_SECRET;
+  }
+});
+
+test("webhook with secret rejects invalid signatures", async () => {
+  const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "test";
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+  try {
+    const worker = await loadWorker("webhook-bad-sig");
+    const response = await worker.fetch(
+      new Request("http://localhost/api/checkout/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": "t=1,v1=deadbeef",
+        },
+        body: JSON.stringify({ id: "evt_bad", type: "ping" }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Invalid signature/);
+  } finally {
+    process.env.NODE_ENV = previousEnv;
+    if (previousSecret) process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+    else delete process.env.STRIPE_WEBHOOK_SECRET;
+  }
+});
+
 test("checkout fails closed when a Stripe key is unavailable", async () => {
   const previousKey = process.env.STRIPE_SECRET_KEY;
   delete process.env.STRIPE_SECRET_KEY;

@@ -29,9 +29,12 @@ function ClaimsInner() {
   const [deviceId, setDeviceId] = useState("");
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
+  const [q, setQ] = useState("");
 
-  async function loadList() {
-    const response = await fetch("/api/admin/claims");
+  async function loadList(nextQ = q) {
+    const params = new URLSearchParams();
+    if (nextQ) params.set("q", nextQ);
+    const response = await fetch(`/api/admin/claims?${params}`);
     if (response.status === 401) {
       router.replace("/admin/login");
       return;
@@ -126,6 +129,10 @@ function ClaimsInner() {
         <button type="submit">Create</button>
         {message ? <p className="admin-muted">{message}</p> : null}
       </form>
+      <div className="admin-toolbar">
+        <input placeholder="Search email / device / subject" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="button" onClick={() => void loadList()}>Filter</button>
+      </div>
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead><tr><th>ID</th><th>Subject</th><th>Email</th><th>Status</th></tr></thead>

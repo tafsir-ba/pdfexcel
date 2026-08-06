@@ -32,7 +32,12 @@ export async function GET(request: NextRequest) {
         .from(transactions)
         .where(sql`${transactions.status} in ('refunded','partially_refunded','disputed')`),
       db.select().from(entitlements).where(and(eq(entitlements.status, "active"), gte(entitlements.endsAt, now))),
-      db.select().from(entitlements).where(eq(entitlements.status, "expired")),
+      db
+        .select()
+        .from(entitlements)
+        .where(
+          sql`(${entitlements.status} = 'expired') or (${entitlements.status} = 'active' and ${entitlements.endsAt} < ${now})`,
+        ),
       db.select().from(usageEvents).where(gte(usageEvents.createdAt, thirtyDaysAgo)),
       db.select().from(claimCases).orderBy(desc(claimCases.updatedAt)).limit(8),
       db.select().from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(8),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   requireAdmin,
   transactions,
+  customers,
   desc,
 } from "../../../../lib/admin-data";
 
@@ -20,13 +21,25 @@ export async function GET(request: NextRequest) {
   if (from) rows = rows.filter((row) => row.createdAt >= from);
   if (to) rows = rows.filter((row) => row.createdAt <= `${to}T23:59:59`);
   if (q) {
+    const stripeMatches = await db.select().from(customers);
+    const customerIds = new Set(
+      stripeMatches
+        .filter(
+          (customer) =>
+            customer.stripeCustomerId?.toLowerCase().includes(q) ||
+            customer.email?.toLowerCase().includes(q) ||
+            customer.deviceId?.toLowerCase().includes(q),
+        )
+        .map((customer) => customer.id),
+    );
     rows = rows.filter(
       (row) =>
         row.customerEmail?.toLowerCase().includes(q) ||
         row.providerSessionId?.toLowerCase().includes(q) ||
         row.providerPaymentId?.toLowerCase().includes(q) ||
         row.deviceId?.toLowerCase().includes(q) ||
-        String(row.id) === q,
+        String(row.id) === q ||
+        (row.customerId != null && customerIds.has(row.customerId)),
     );
   }
 

@@ -1,12 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { clearSessionCookieHeader } from "../../../../lib/admin-auth";
 import { requireAdmin, writeAudit } from "../../../../lib/admin-data";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const secure = request.nextUrl.protocol === "https:";
   const auth = await requireAdmin(request);
   if (auth instanceof Response) {
     const response = NextResponse.json({ ok: true });
-    response.headers.set("Set-Cookie", clearSessionCookieHeader());
+    response.headers.set("Set-Cookie", clearSessionCookieHeader(secure));
     return response;
   }
   await writeAudit(auth.db, {
@@ -16,6 +17,6 @@ export async function POST(request: Request) {
     targetId: auth.session.adminId,
   });
   const response = NextResponse.json({ ok: true });
-  response.headers.set("Set-Cookie", clearSessionCookieHeader());
+  response.headers.set("Set-Cookie", clearSessionCookieHeader(secure));
   return response;
 }

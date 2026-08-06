@@ -8,6 +8,7 @@ import {
   sanitizeFilename,
   sha256Hex,
   verifyPassword,
+  rolePermissions,
 } from "../lib/admin-auth.ts";
 
 test("password hashing verifies matching passwords and rejects mismatches", async () => {
@@ -21,9 +22,12 @@ test("RBAC grants match role matrix for observability actions", () => {
   assert.equal(can("support", "claims:write"), true);
   assert.equal(can("support", "pricing:write"), false);
   assert.equal(can("finance", "transactions:read"), true);
+  assert.equal(can("finance", "entitlements:read"), false);
   assert.equal(can("finance", "claims:write"), false);
   assert.equal(can("readonly", "entitlements:write"), false);
   assert.equal(can("readonly", "usage:read"), true);
+  assert.ok(rolePermissions("support").includes("claims:read"));
+  assert.equal(rolePermissions("finance").includes("entitlements:read"), false);
 });
 
 test("filename sanitization and hashing never retain raw path characters", async () => {
@@ -51,6 +55,27 @@ test("admin session tokens expire and reject tampering", async () => {
     -1,
   );
   assert.equal(await readSessionToken(expired), null);
+});
+
+test("production rejects missing ADMIN_SESSION_SECRET", async () => {
+  const previous = process.env.NODE_ENV;
+  const previousSecret = process.env.ADMIN_SESSION_SECRET;
+  const previousStripe = process.env.STRIPE_SECRET_KEY;
+  process.env.NODE_ENV = "production";
+  delete process.env.ADMIN_SESSION_SECRET;
+  delete process.env.STRIPE_SECRET_KEY;
+  try {
+    await assert.rejects(
+      () => createSessionToken({ adminId: 1, email: "a@b.c", role: "owner" }),
+      /ADMIN_SESSION_SECRET/,
+    );
+  } finally {
+    process.env.NODE_ENV = previous;
+    if (previousSecret) process.env.ADMIN_SESSION_SECRET = previousSecret;
+    else delete process.env.ADMIN_SESSION_SECRET;
+    if (previousStripe) process.env.STRIPE_SECRET_KEY = previousStripe;
+    else delete process.env.STRIPE_SECRET_KEY;
+  }
 });
 
 test("entitlement window math extends from the later of now or current end", () => {

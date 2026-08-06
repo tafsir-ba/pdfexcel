@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
       email: result.admin.email,
       role: result.admin.role,
     });
-    response.headers.set("Set-Cookie", sessionCookieHeader(result.token));
+    response.headers.set(
+      "Set-Cookie",
+      sessionCookieHeader(result.token, request.nextUrl.protocol === "https:"),
+    );
     return response;
   } catch (error) {
     console.error("admin login failed", error);
