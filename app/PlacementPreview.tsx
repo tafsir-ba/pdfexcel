@@ -14,7 +14,7 @@ import {
   separateFromOthers,
   type ResizeEdge,
 } from "./placement-geometry";
-import { CHECKBOX_ALWAYS, type StaticPlacement } from "./static-pdf";
+import { CHECKBOX_ALWAYS, PLACEMENT_FONT_OPTIONS, PLACEMENT_FONT_SIZES, type PlacementFontFamily, type StaticPlacement } from "./static-pdf";
 
 type PreviewField = {
   name: string;
@@ -31,6 +31,10 @@ type PlacementPreviewProps = {
   sampleValues: Record<string, string>;
   onSelectField: (name: string | null) => void;
   onMoveField: (name: string, placement: StaticPlacement) => void;
+  onStyleField: (
+    name: string,
+    style: { fontFamily?: PlacementFontFamily; fontSize?: number | "" },
+  ) => void;
   onMapField: (name: string, value: string) => void;
   onRemoveField: (name: string) => void;
   onAddField: (pageIndex: number, pageSize: { width: number; height: number }) => void;
@@ -64,6 +68,7 @@ export function PlacementPreview({
   sampleValues,
   onSelectField,
   onMoveField,
+  onStyleField,
   onMapField,
   onRemoveField,
   onAddField,
@@ -202,7 +207,7 @@ export function PlacementPreview({
     event: ReactPointerEvent<HTMLElement>,
     field: PreviewField & { placement: StaticPlacement },
   ) => {
-    if ((event.target as HTMLElement).closest("select,button,label,option,.placement-handle")) {
+    if ((event.target as HTMLElement).closest("select,button,label,option,.placement-handle,.placement-text-editor")) {
       return;
     }
     event.preventDefault();
@@ -344,7 +349,7 @@ export function PlacementPreview({
           <h4>Place fields on the PDF</h4>
           <p>
             Drag for precise placement — edges soft-snap to nearby fields. Resize from the handles.
-            Overlaps clear gently when you release. Click a field to map or remove it.
+            Unmapped fields are highlighted in purple. Click a field to map it and set font size or typeface.
           </p>
         </div>
         <div className="placement-preview-actions">
@@ -504,7 +509,7 @@ export function PlacementPreview({
                     {expanded ? (
                       <div
                         className="placement-chrome"
-                        style={{ width: Math.max(148, Math.min(220, box.width + 40)) }}
+                        style={{ width: Math.max(168, Math.min(260, box.width + 56)) }}
                         onPointerDown={(event) => event.stopPropagation()}
                       >
                         <div className="placement-box-toolbar">
@@ -553,8 +558,72 @@ export function PlacementPreview({
                             </select>
                           )}
                         </label>
+                        {field.type !== "checkbox" ? (
+                          <div
+                            className="placement-text-editor"
+                            role="group"
+                            aria-label={`Text style for ${field.name}`}
+                            onPointerDown={(event) => event.stopPropagation()}
+                          >
+                            <label className="placement-font-wrap">
+                              <span className="sr-only">Font for {field.name}</span>
+                              <select
+                                value={placement.fontFamily || "helvetica"}
+                                onChange={(event) =>
+                                  onStyleField(field.name, {
+                                    fontFamily: event.target.value as PlacementFontFamily,
+                                  })
+                                }
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {PLACEMENT_FONT_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="placement-size-wrap">
+                              <span className="sr-only">Font size for {field.name}</span>
+                              <select
+                                value={String(placement.fontSize || "")}
+                                onChange={(event) => {
+                                  const raw = event.target.value;
+                                  onStyleField(field.name, {
+                                    fontSize: raw ? Number(raw) : "",
+                                  });
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <option value="">Auto</option>
+                                {PLACEMENT_FONT_SIZES.map((size) => (
+                                  <option key={size} value={size}>
+                                    {size}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        ) : null}
                         {sample && mapped && mapped !== CHECKBOX_ALWAYS ? (
-                          <span className="placement-box-sample">{sample}</span>
+                          <span
+                            className="placement-box-sample"
+                            style={{
+                              fontFamily:
+                                placement.fontFamily === "times"
+                                  ? "Times New Roman, Times, serif"
+                                  : placement.fontFamily === "courier"
+                                    ? "Courier New, Courier, monospace"
+                                    : placement.fontFamily === "noto"
+                                      ? "Noto Sans, Arial, sans-serif"
+                                      : "Helvetica, Arial, sans-serif",
+                              fontSize: `${Math.max(9, Math.min(14, placement.fontSize || 10))}px`,
+                            }}
+                          >
+                            {sample}
+                          </span>
+                        ) : !mapped ? (
+                          <span className="placement-box-unmapped">Not mapped — choose a column</span>
                         ) : null}
                       </div>
                     ) : null}

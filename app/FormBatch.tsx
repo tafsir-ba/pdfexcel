@@ -53,6 +53,7 @@ import {
   mergeSavedPlacements,
   withoutRemovedFields,
   type DetectedStaticField,
+  type PlacementFontFamily,
   type StaticPlacement,
 } from "./static-pdf";
 import { reconcileFieldMapping } from "./mapping";
@@ -383,6 +384,22 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
 
   const mapPrintedField = (name: string, value: string) => {
     setMapping((current) => ({ ...current, [name]: value }));
+  };
+
+  const stylePrintedField = (
+    name: string,
+    style: { fontFamily?: PlacementFontFamily; fontSize?: number | "" },
+  ) => {
+    setFields((current) =>
+      current.map((field) => {
+        if (field.name !== name || !field.placement) return field;
+        const placement = { ...field.placement };
+        if (style.fontFamily) placement.fontFamily = style.fontFamily;
+        if (style.fontSize === "") delete placement.fontSize;
+        else if (typeof style.fontSize === "number") placement.fontSize = style.fontSize;
+        return { ...field, placement };
+      }),
+    );
   };
 
   const removePrintedField = (name: string) => {
@@ -1121,7 +1138,10 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           return column ? /[^\x20-\x7e]/.test(row[column] || "") : false;
         }),
       );
-      const unicodeFont = usesInternationalText ? await loadUnicodeFont() : null;
+      const needsNoto =
+        usesInternationalText ||
+        staticFields.some((field) => field.placement?.fontFamily === "noto");
+      const unicodeFont = needsNoto ? await loadUnicodeFont() : null;
 
       for (let index = 0; index < selectedRows.length; index += 1) {
         const row = selectedRows[index];
@@ -1136,11 +1156,21 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           setPdfValue(form.getField(field.name), value);
         }
         if (unicodeFont) document.registerFontkit(fontkit);
-        const font = unicodeFont
+        const helvetica = await document.embedFont(StandardFonts.Helvetica);
+        const times = await document.embedFont(StandardFonts.TimesRoman);
+        const courier = await document.embedFont(StandardFonts.Courier);
+        const noto = unicodeFont
           ? await document.embedFont(unicodeFont, { subset: true })
-          : await document.embedFont(StandardFonts.Helvetica);
+          : undefined;
+        const fonts = {
+          default: noto || helvetica,
+          helvetica,
+          times,
+          courier,
+          noto,
+        };
         if (acroFields.length) {
-          form.updateFieldAppearances(font);
+          form.updateFieldAppearances(fonts.default);
           if (flatten) form.flatten();
         }
         applyStaticPdfFields(
@@ -1148,7 +1178,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           staticFields as DetectedStaticField[],
           mapping,
           row,
-          font,
+          fonts,
         );
         const output = await document.save();
         const rowName = filenameColumn ? row[filenameColumn] : "";
@@ -1628,6 +1658,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                   sampleValues={previewSamples}
                   onSelectField={setSelectedField}
                   onMoveField={movePrintedField}
+                  onStyleField={stylePrintedField}
                   onMapField={mapPrintedField}
                   onRemoveField={removePrintedField}
                   onAddField={addPrintedField}
@@ -1636,7 +1667,9 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
               <div className={`mapping-list ${showPrintedPreview ? "mapping-list-dense" : ""}`}>
                 {supportedFields.map((field) => (
                   <div
-                    className={`mapping-row ${selectedField === field.name ? "selected" : ""}`}
+                    className={`mapping-row ${selectedField === field.name ? "selected" : ""} ${
+                      mapping[field.name] ? "" : "unmapped-row"
+                    }`}
                     key={field.name}
                     onClick={() => setSelectedField(field.name)}
                   >

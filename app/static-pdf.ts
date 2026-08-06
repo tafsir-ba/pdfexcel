@@ -17,13 +17,28 @@ async function configurePdfJsWorker() {
   pdfWorkerConfigured = true;
 }
 
+export type PlacementFontFamily = "helvetica" | "times" | "courier" | "noto";
+
 export type StaticPlacement = {
   pageIndex: number;
   x: number;
   y: number;
   width: number;
   height: number;
+  /** Optional fill text size in PDF points. When omitted, size auto-fits the box. */
+  fontSize?: number;
+  /** Optional typeface for printed-form fill text. */
+  fontFamily?: PlacementFontFamily;
 };
+
+export const PLACEMENT_FONT_OPTIONS: { value: PlacementFontFamily; label: string }[] = [
+  { value: "helvetica", label: "Helvetica" },
+  { value: "times", label: "Times" },
+  { value: "courier", label: "Courier" },
+  { value: "noto", label: "Noto Sans" },
+];
+
+export const PLACEMENT_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18] as const;
 
 export type DetectedStaticField = {
   name: string;
@@ -65,25 +80,51 @@ export function withoutRemovedFields<T extends { name: string }>(
   return fields.filter((field) => !skip.has(field.name));
 }
 
+export type StaticFontSet = {
+  default: PDFFont;
+  helvetica?: PDFFont;
+  times?: PDFFont;
+  courier?: PDFFont;
+  noto?: PDFFont;
+};
+
+function normalizeFonts(fonts: PDFFont | StaticFontSet): StaticFontSet {
+  if (fonts && typeof fonts === "object" && "default" in fonts) {
+    return fonts as StaticFontSet;
+  }
+  return { default: fonts as PDFFont };
+}
+
 export function applyStaticPdfFields(
   document: PDFDocument,
   fields: DetectedStaticField[],
   mapping: Record<string, string>,
   row: Record<string, string>,
-  font: PDFFont,
+  fonts: PDFFont | StaticFontSet,
 ) {
+  const fontMap = normalizeFonts(fonts);
+
+  const resolveFont = (family?: PlacementFontFamily) => {
+    if (!family || family === "helvetica") return fontMap.helvetica || fontMap.default;
+    if (family === "times") return fontMap.times || fontMap.default;
+    if (family === "courier") return fontMap.courier || fontMap.default;
+    return fontMap.noto || fontMap.default;
+  };
+
   for (const field of fields) {
     const rule = mapping[field.name];
     if (!rule) continue;
     const page = document.getPages()[field.placement.pageIndex];
     if (!page) continue;
+    const font = resolveFont(field.placement.fontFamily);
 
     if (field.type === "checkbox") {
       if (isCheckboxChecked(rule, row)) {
+        const markSize = field.placement.fontSize || Math.min(9, field.placement.height);
         page.drawText("X", {
           x: field.placement.x,
           y: field.placement.y - 1,
-          size: Math.min(9, field.placement.height),
+          size: Math.min(markSize, field.placement.height),
           font,
         });
       }
@@ -93,8 +134,13 @@ export function applyStaticPdfFields(
     const value = row[rule] || "";
     if (!value) continue;
 
-    let fontSize = Math.min(9, field.placement.height - 1);
-    while (fontSize > 5 && font.widthOfTextAtSize(value, fontSize) > field.placement.width) {
+    let fontSize = field.placement.fontSize ?? Math.min(9, field.placement.height - 1);
+    const floor = Math.min(5, fontSize);
+    while (
+      fontSize > floor &&
+      typeof font.widthOfTextAtSize === "function" &&
+      font.widthOfTextAtSize(value, fontSize) > field.placement.width
+    ) {
       fontSize -= 0.5;
     }
     page.drawText(value, {

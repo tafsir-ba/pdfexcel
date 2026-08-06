@@ -401,6 +401,33 @@ test("printed checkboxes draw a mark only when their rule passes", () => {
   assert.equal(draws.length, 1);
 });
 
+test("printed text fields honor chosen font size", () => {
+  const draws = [];
+  const font = {
+    widthOfTextAtSize: () => 20,
+  };
+  const document = {
+    getPages: () => [{ drawText: (text, options) => draws.push({ text, options }) }],
+  };
+  const field = {
+    name: "Full Name",
+    type: "text",
+    placement: { pageIndex: 0, x: 10, y: 40, width: 120, height: 16, fontSize: 14, fontFamily: "times" },
+  };
+
+  applyStaticPdfFields(
+    document,
+    [field],
+    { "Full Name": "Name" },
+    { Name: "Ada Lovelace" },
+    { default: font, times: font },
+  );
+  assert.equal(draws.length, 1);
+  assert.equal(draws[0].text, "Ada Lovelace");
+  assert.equal(draws[0].options.size, 14);
+  assert.equal(draws[0].options.font, font);
+});
+
 test("mapping reconcile preserves Always-check and intentional blank values", () => {
   const fields = [{ name: "Approved" }, { name: "Full Name" }, { name: "Course" }];
   const headers = ["Full Name", "Approved", "Course"];
