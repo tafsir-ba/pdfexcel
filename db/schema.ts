@@ -16,13 +16,14 @@ export const adminUsers = sqliteTable(
   (table) => [uniqueIndex("admin_users_email_uidx").on(table.email)],
 );
 
-/** End customers identified by device and/or Stripe email — never file contents. */
+/** End customers identified by email account and/or device — never file contents. */
 export const customers = sqliteTable(
   "customers",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     deviceId: text("device_id"),
     email: text("email"),
+    passwordHash: text("password_hash"),
     stripeCustomerId: text("stripe_customer_id"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

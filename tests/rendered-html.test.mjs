@@ -166,6 +166,7 @@ test("checkout sends Stripe the exact product, price, device, and return URLs", 
     assert.equal(parameters.get("metadata[device_id]"), "device-123");
     assert.equal(parameters.get("metadata[product]"), "formbatch_30_day_access");
     assert.equal(parameters.get("payment_method_types[0]"), "card");
+    assert.equal(parameters.get("customer_creation"), "always");
     assert.equal(parameters.get("success_url"), "https://formbatch.example/?session_id={CHECKOUT_SESSION_ID}");
     assert.equal(parameters.get("cancel_url"), "https://formbatch.example/?checkout=cancelled");
   } finally {
@@ -204,7 +205,7 @@ test("health endpoint responds without auth", async () => {
   assert.equal((await response.json()).ok, true);
 });
 
-test("verification accepts a paid matching device and rejects a forged device", async () => {
+test("verification accepts a paid session on the original or another device", async () => {
   const previousKey = process.env.STRIPE_SECRET_KEY;
   const originalFetch = globalThis.fetch;
   process.env.STRIPE_SECRET_KEY = "sk_test_verify";
@@ -213,6 +214,7 @@ test("verification accepts a paid matching device and rejects a forged device", 
     Response.json({
       payment_status: "paid",
       created,
+      customer_details: { email: "buyer@example.com" },
       metadata: { device_id: "device-123", product: "formbatch_30_day_access" },
     });
 
@@ -224,18 +226,20 @@ test("verification accepts a paid matching device and rejects a forged device", 
       runtimeContext,
     );
     assert.equal(paidResponse.status, 200);
-    assert.deepEqual(await paidResponse.json(), {
-      paid: true,
-      expiresAt: created * 1000 + 30 * 24 * 60 * 60 * 1000,
-    });
+    const paidBody = await paidResponse.json();
+    assert.equal(paidBody.paid, true);
+    assert.equal(paidBody.expiresAt, created * 1000 + 30 * 24 * 60 * 60 * 1000);
+    assert.equal(paidBody.email, "buyer@example.com");
+    assert.equal(typeof paidBody.needsAccount, "boolean");
 
-    const forgedResponse = await worker.fetch(
+    // Same Checkout session can finish account setup / unlock on another screen.
+    const otherDevice = await worker.fetch(
       new Request("https://formbatch.example/api/checkout/verify?session_id=cs_test_paid&device_id=another-device"),
       runtimeEnv,
       runtimeContext,
     );
-    assert.equal(forgedResponse.status, 402);
-    assert.match(await forgedResponse.text(), /No completed PDF Mail Merge payment/);
+    assert.equal(otherDevice.status, 200);
+    assert.equal((await otherDevice.json()).paid, true);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;

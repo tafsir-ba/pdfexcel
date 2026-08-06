@@ -375,6 +375,14 @@ export async function recordPaidCheckout(
     .set({ status: "revoked", updatedAt: sql`CURRENT_TIMESTAMP`, reason: "superseded_by_new_purchase" })
     .where(and(eq(entitlements.deviceId, input.deviceId), eq(entitlements.status, "active")));
 
+  if (input.email) {
+    const email = input.email.trim().toLowerCase();
+    await db
+      .update(entitlements)
+      .set({ status: "revoked", updatedAt: sql`CURRENT_TIMESTAMP`, reason: "superseded_by_new_purchase" })
+      .where(and(eq(entitlements.email, email), eq(entitlements.status, "active")));
+  }
+
   await db.insert(entitlements).values({
     customerId,
     deviceId: input.deviceId,
@@ -387,7 +395,7 @@ export async function recordPaidCheckout(
     reason: "stripe_checkout",
   });
 
-  return { transactionId: transactionId!, endsAt, startsAt };
+  return { transactionId: transactionId!, endsAt, startsAt, customerId };
 }
 
 export {

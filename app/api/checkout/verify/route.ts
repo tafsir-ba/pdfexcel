@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withAdminDb, recordPaidCheckout, pricingPlans, and, eq } from "../../../../lib/admin-data";
+import { findCustomerByEmail } from "../../../../lib/customer-access";
 
 const DEFAULT_DURATION_DAYS = 30;
 const DEFAULT_PRODUCT = "formbatch_30_day_access";
@@ -38,10 +39,7 @@ export async function GET(request: NextRequest) {
   }
 
   const productKey = session.metadata?.product || DEFAULT_PRODUCT;
-  const paid =
-    session.payment_status === "paid" &&
-    session.metadata?.device_id === deviceId &&
-    productKey === DEFAULT_PRODUCT;
+  const paid = session.payment_status === "paid" && productKey === DEFAULT_PRODUCT;
   if (!paid) {
     return NextResponse.json({ paid: false, error: "No completed PDF Mail Merge payment was found." }, { status: 402 });
   }
@@ -69,7 +67,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const email = session.customer_details?.email || session.customer_email || null;
+  const email = (session.customer_details?.email || session.customer_email || "").trim().toLowerCase() || null;
+  let needsAccount = Boolean(email);
   try {
     await withAdminDb(async (db) => {
       await recordPaidCheckout(db, {
@@ -84,10 +83,21 @@ export async function GET(request: NextRequest) {
         durationDays,
         productKey,
       });
+      if (email) {
+        const customer = await findCustomerByEmail(db, email);
+        needsAccount = !customer?.passwordHash;
+      } else {
+        needsAccount = false;
+      }
     });
   } catch (error) {
     console.error("Failed to persist checkout entitlement", error);
   }
 
-  return NextResponse.json({ paid: true, expiresAt });
+  return NextResponse.json({
+    paid: true,
+    expiresAt,
+    email,
+    needsAccount,
+  });
 }
