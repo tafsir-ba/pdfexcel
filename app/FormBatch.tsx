@@ -454,14 +454,16 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         ) {
           throw new Error(result.error || "Payment could not be verified.");
         }
-        grantLocalAccess(result.expiresAt, sessionId);
         await restoreWorkspaceAfterPayment();
         if (result.email) setAccountEmail(result.email);
         setPendingCheckoutSession(sessionId);
         if (result.needsAccount && result.email) {
+          // Do not unlock until the access account password is created (cross-device requirement).
+          setHasAccess(false);
           setAccountPanel("register");
-          setNotice("Payment confirmed. Create a password so you can unlock this access on any device.");
+          setNotice("Payment confirmed. Create a password to unlock full batches on this and any other device.");
         } else {
+          grantLocalAccess(result.expiresAt, sessionId);
           setNotice("Payment confirmed. Your account unlocks unlimited batches for the paid period.");
         }
         window.history.replaceState({}, "", window.location.pathname);
@@ -742,7 +744,35 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   const generate = async (fullBatch: boolean) => {
     if (!pdfFile || !isReady) return;
     if (fullBatch) {
-      const access = readStoredAccess();
+      if (accountPanel === "register") {
+        setError("Create your access password before generating the full batch.");
+        return;
+      }
+      let access = readStoredAccess();
+      try {
+        const response = await fetch("/api/account/me", { cache: "no-store" });
+        if (response.ok) {
+          const me = (await response.json()) as {
+            authenticated?: boolean;
+            hasAccess?: boolean;
+            expiresAt?: number;
+            email?: string;
+          };
+          if (me.authenticated) {
+            if (!me.hasAccess || typeof me.expiresAt !== "number" || me.expiresAt <= Date.now()) {
+              localStorage.removeItem(ACCESS_KEY);
+              setHasAccess(false);
+              setError("Paid access is no longer active on this account. Sign in again or renew.");
+              return;
+            }
+            grantLocalAccess(me.expiresAt);
+            if (me.email) setAccountEmail(me.email);
+            access = { expiresAt: me.expiresAt };
+          }
+        }
+      } catch {
+        /* If account status cannot be reached, fall back to local unlock window. */
+      }
       if (!access) {
         setHasAccess(false);
         setError("Unlock the full batch before generating more than three documents.");
@@ -921,15 +951,20 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
             <div className="account-card-head">
               <UserRound size={18} />
               <h2>{accountPanel === "register" ? "Create your access account" : "Restore paid access"}</h2>
-              <button className="icon-button" type="button" aria-label="Close" onClick={() => setAccountPanel(null)}>
-                <X size={16} />
-              </button>
+              {accountPanel === "login" ? (
+                <button className="icon-button" type="button" aria-label="Close" onClick={() => setAccountPanel(null)}>
+                  <X size={16} />
+                </button>
+              ) : (
+                <span aria-hidden="true" />
+              )}
             </div>
             {accountPanel === "register" ? (
               <>
                 <p>
-                  Payment is confirmed for <strong>{accountEmail}</strong>. Set a password to use this unlock on any
-                  computer for {durationDays} days. PDF and CSV files still never leave your browser.
+                  Payment is confirmed for <strong>{accountEmail}</strong>. Set a password now to unlock full batches
+                  on this device and any other device for {durationDays} days. PDF and CSV files still never leave your
+                  browser.
                 </p>
                 <label>
                   Password

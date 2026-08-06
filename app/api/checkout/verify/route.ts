@@ -38,25 +38,42 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: session.error?.message || "Payment could not be verified." }, { status: 502 });
   }
 
-  const productKey = session.metadata?.product || DEFAULT_PRODUCT;
-  const paid = session.payment_status === "paid" && productKey === DEFAULT_PRODUCT;
-  if (!paid) {
+  if (session.payment_status !== "paid") {
     return NextResponse.json({ paid: false, error: "No completed PDF Mail Merge payment was found." }, { status: 402 });
   }
 
+  const productKey = session.metadata?.product || DEFAULT_PRODUCT;
   const createdAt = (session.created || Math.floor(Date.now() / 1000)) * 1000;
+
   let durationDays = DEFAULT_DURATION_DAYS;
+  let amountFallback = 1900;
+  let productAllowed = productKey === DEFAULT_PRODUCT;
   try {
-    durationDays = await withAdminDb(async (db) => {
+    const planInfo = await withAdminDb(async (db) => {
       const [plan] = await db
         .select()
         .from(pricingPlans)
-        .where(and(eq(pricingPlans.productKey, productKey), eq(pricingPlans.active, true)))
+        .where(
+          and(
+            eq(pricingPlans.productKey, productKey),
+            eq(pricingPlans.active, true),
+            eq(pricingPlans.archived, false),
+          ),
+        )
         .limit(1);
-      return plan?.durationDays || DEFAULT_DURATION_DAYS;
+      return plan;
     });
+    if (planInfo) {
+      productAllowed = true;
+      durationDays = planInfo.durationDays || DEFAULT_DURATION_DAYS;
+      amountFallback = planInfo.amountCents || amountFallback;
+    }
   } catch {
     durationDays = DEFAULT_DURATION_DAYS;
+  }
+
+  if (!productAllowed) {
+    return NextResponse.json({ paid: false, error: "No completed PDF Mail Merge payment was found." }, { status: 402 });
   }
 
   const expiresAt = createdAt + durationDays * 24 * 60 * 60 * 1000;
@@ -77,7 +94,7 @@ export async function GET(request: NextRequest) {
         deviceId,
         email,
         stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
-        amountCents: session.amount_total ?? 1900,
+        amountCents: session.amount_total ?? amountFallback,
         currency: session.currency || "usd",
         createdMs: createdAt,
         durationDays,
