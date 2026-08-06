@@ -40,6 +40,7 @@ import unicodeFontDataUrl from "./assets/NotoSans-Regular.ttf?inline";
 import { decodeCsvBytes } from "./csv";
 import { createDemoFiles } from "./demo-files";
 import { PlacementPreview } from "./PlacementPreview";
+import { findOpenPlacement, resolveFieldOverlaps } from "./placement-geometry";
 import {
   applyStaticPdfFields,
   CHECKBOX_ALWAYS,
@@ -299,14 +300,13 @@ export function FormBatch() {
       index += 1;
       name = `Field ${index}`;
     }
-    const width = Math.min(180, Math.max(80, size.width * 0.35));
-    const placement: StaticPlacement = {
+    const placement = findOpenPlacement(
       pageIndex,
-      x: Math.max(24, size.width * 0.12),
-      y: Math.max(40, size.height * 0.55),
-      width,
-      height: 11,
-    };
+      size,
+      fields
+        .filter((field): field is PdfField & { placement: StaticPlacement } => Boolean(field.placement))
+        .map((field) => field.placement),
+    );
     setFields((current) => [...current, { name, type: "text", placement }]);
     setMapping((current) => ({ ...current, [name]: "" }));
     setSelectedField(name);
@@ -387,7 +387,16 @@ export function FormBatch() {
           const removed = pendingRemovedRef.current;
           pendingPlacementsRef.current = null;
           pendingRemovedRef.current = null;
-          const kept = withoutRemovedFields(mergeSavedPlacements(staticFields, restored), removed);
+          const pdfDoc = await PDFDocument.load(bytes);
+          const separated: DetectedStaticField[] = [];
+          for (let pageIndex = 0; pageIndex < pdfDoc.getPageCount(); pageIndex += 1) {
+            const size = pdfDoc.getPage(pageIndex).getSize();
+            const onPage = staticFields.filter((field) => field.placement.pageIndex === pageIndex);
+            separated.push(
+              ...resolveFieldOverlaps(onPage, { width: size.width, height: size.height }),
+            );
+          }
+          const kept = withoutRemovedFields(mergeSavedPlacements(separated, restored), removed);
           if (removed) setRemovedFieldNames(removed);
           setFields(kept);
           setNotice(

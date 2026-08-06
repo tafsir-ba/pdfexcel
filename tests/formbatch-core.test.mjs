@@ -437,3 +437,38 @@ test("withoutRemovedFields drops previewer-deleted writing areas", () => {
   assert.deepEqual(withoutRemovedFields(fields, null), fields);
   assert.deepEqual(withoutRemovedFields(fields, []), fields);
 });
+
+test("placement geometry separates overlaps and supports non-overlapping resize", async () => {
+  const {
+    findOpenPlacement,
+    movePlacementWithoutOverlap,
+    placementsOverlap,
+    resizePlacementWithoutOverlap,
+    resolveFieldOverlaps,
+  } = await import("../app/placement-geometry.ts");
+
+  const page = { width: 600, height: 800 };
+  const a = { pageIndex: 0, x: 100, y: 200, width: 120, height: 12 };
+  const b = { pageIndex: 0, x: 110, y: 205, width: 120, height: 12 };
+  assert.equal(placementsOverlap(a, b), true);
+
+  const separated = resolveFieldOverlaps(
+    [
+      { name: "A", placement: a },
+      { name: "B", placement: b },
+    ],
+    page,
+  );
+  assert.equal(placementsOverlap(separated[0].placement, separated[1].placement), false);
+
+  const moved = movePlacementWithoutOverlap(a, 5, 0, [separated[1].placement], page);
+  assert.equal(placementsOverlap(moved, separated[1].placement), false);
+
+  const resized = resizePlacementWithoutOverlap(a, "e", 400, 0, [separated[1].placement], page);
+  assert.ok(resized.width >= 24);
+  assert.equal(placementsOverlap(resized, separated[1].placement), false);
+
+  const open = findOpenPlacement(0, page, [a, separated[1].placement]);
+  assert.equal(placementsOverlap(open, a), false);
+  assert.equal(placementsOverlap(open, separated[1].placement), false);
+});

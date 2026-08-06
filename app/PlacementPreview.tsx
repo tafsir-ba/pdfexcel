@@ -8,6 +8,11 @@ import {
   useState,
 } from "react";
 import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import {
+  movePlacementWithoutOverlap,
+  resizePlacementWithoutOverlap,
+  type ResizeEdge,
+} from "./placement-geometry";
 import { CHECKBOX_ALWAYS, type StaticPlacement } from "./static-pdf";
 
 type PreviewField = {
@@ -29,6 +34,25 @@ type PlacementPreviewProps = {
   onRemoveField: (name: string) => void;
   onAddField: (pageIndex: number, pageSize: { width: number; height: number }) => void;
 };
+
+type Interaction =
+  | {
+      kind: "move";
+      name: string;
+      originX: number;
+      originY: number;
+      startPlacement: StaticPlacement;
+      moved: boolean;
+    }
+  | {
+      kind: "resize";
+      name: string;
+      edge: ResizeEdge;
+      originX: number;
+      originY: number;
+      startPlacement: StaticPlacement;
+      moved: boolean;
+    };
 
 export function PlacementPreview({
   pdfFile,
@@ -52,13 +76,7 @@ export function PlacementPreview({
   const [renderedPageIndex, setRenderedPageIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
-  const dragRef = useRef<{
-    name: string;
-    originX: number;
-    originY: number;
-    startPlacement: StaticPlacement;
-    moved: boolean;
-  } | null>(null);
+  const interactionRef = useRef<Interaction | null>(null);
 
   const safePageIndex = Math.min(pageIndex, Math.max(0, pageCount - 1));
   const pageReady = renderedPageIndex === safePageIndex && pageSize.height > 0;
@@ -159,15 +177,22 @@ export function PlacementPreview({
     height: Math.max(1, placement.height * scale),
   });
 
-  const onPointerDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
+  const othersFor = (name: string) =>
+    pageFields.filter((field) => field.name !== name).map((field) => field.placement);
+
+  const beginMove = (
+    event: ReactPointerEvent<HTMLElement>,
     field: PreviewField & { placement: StaticPlacement },
   ) => {
-    if ((event.target as HTMLElement).closest("select,button,label,option")) return;
+    if ((event.target as HTMLElement).closest("select,button,label,option,.placement-handle")) {
+      return;
+    }
     event.preventDefault();
+    event.stopPropagation();
     onSelectField(field.name);
     setDragging(false);
-    dragRef.current = {
+    interactionRef.current = {
+      kind: "move",
       name: field.name,
       originX: event.clientX,
       originY: event.clientY,
@@ -177,26 +202,69 @@ export function PlacementPreview({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || !pageSize.height) return;
-    const dx = (event.clientX - drag.originX) / scale;
-    const dy = (event.clientY - drag.originY) / scale;
-    if (!drag.moved && Math.hypot(dx, dy) < 1.5) return;
-    if (!drag.moved) {
-      drag.moved = true;
-      setDragging(true);
-    }
-    onMoveField(drag.name, {
-      ...drag.startPlacement,
-      x: Math.max(0, drag.startPlacement.x + dx),
-      y: Math.max(0, drag.startPlacement.y - dy),
-    });
+  const beginResize = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    field: PreviewField & { placement: StaticPlacement },
+    edge: ResizeEdge,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectField(field.name);
+    setDragging(true);
+    interactionRef.current = {
+      kind: "resize",
+      name: field.name,
+      edge,
+      originX: event.clientX,
+      originY: event.clientY,
+      startPlacement: { ...field.placement },
+      moved: true,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current) {
-      dragRef.current = null;
+  const onPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const interaction = interactionRef.current;
+    if (!interaction || !pageSize.height) return;
+    const dx = (event.clientX - interaction.originX) / scale;
+    const dyScreen = (event.clientY - interaction.originY) / scale;
+    const dyPdf = -dyScreen;
+
+    if (interaction.kind === "move") {
+      if (!interaction.moved && Math.hypot(dx, dyScreen) < 1.5) return;
+      if (!interaction.moved) {
+        interaction.moved = true;
+        setDragging(true);
+      }
+      onMoveField(
+        interaction.name,
+        movePlacementWithoutOverlap(
+          interaction.startPlacement,
+          dx,
+          dyPdf,
+          othersFor(interaction.name),
+          pageSize,
+        ),
+      );
+      return;
+    }
+
+    onMoveField(
+      interaction.name,
+      resizePlacementWithoutOverlap(
+        interaction.startPlacement,
+        interaction.edge,
+        dx,
+        dyPdf,
+        othersFor(interaction.name),
+        pageSize,
+      ),
+    );
+  };
+
+  const onPointerUp = (event: ReactPointerEvent<HTMLElement>) => {
+    if (interactionRef.current) {
+      interactionRef.current = null;
       setDragging(false);
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -212,8 +280,8 @@ export function PlacementPreview({
         <div>
           <h4>Place fields on the PDF</h4>
           <p>
-            Drag the small name chips onto blanks. Click a field to map or remove it — keep the
-            preview clear while you place.
+            Drag to place, drag the edges to resize. Fields stay clear of each other. Click a field
+            to map or remove it.
           </p>
         </div>
         <div className="placement-preview-actions">
@@ -289,7 +357,6 @@ export function PlacementPreview({
                 const expanded = active && !dragging;
                 const mapped = mapping[field.name] || "";
                 const chromeBelow = box.y < 72;
-                const chipInside = box.y < 16;
                 return (
                   <div
                     key={field.name}
@@ -297,15 +364,15 @@ export function PlacementPreview({
                       expanded ? "expanded" : "collapsed"
                     } ${field.type} ${mapped ? "mapped" : "unmapped"} ${
                       chromeBelow ? "chrome-below" : "chrome-above"
-                    } ${chipInside ? "chip-inside" : ""}`}
+                    }`}
                     style={{
                       left: box.x,
                       top: box.y,
                       width: box.width,
                       height: box.height,
                     }}
-                    title={field.name}
-                    onPointerDown={(event) => onPointerDown(event, field)}
+                    title={`${field.name} — drag to move, edges to resize`}
+                    onPointerDown={(event) => beginMove(event, field)}
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
                     onPointerCancel={onPointerUp}
@@ -313,6 +380,46 @@ export function PlacementPreview({
                   >
                     <span className="placement-fill-outline" aria-hidden="true" />
                     <span className="placement-chip">{field.name}</span>
+                    {active ? (
+                      <>
+                        <button
+                          type="button"
+                          className="placement-handle handle-e"
+                          aria-label={`Resize ${field.name} width`}
+                          onPointerDown={(event) => beginResize(event, field, "e")}
+                          onPointerMove={onPointerMove}
+                          onPointerUp={onPointerUp}
+                          onPointerCancel={onPointerUp}
+                        />
+                        <button
+                          type="button"
+                          className="placement-handle handle-w"
+                          aria-label={`Resize ${field.name} from left`}
+                          onPointerDown={(event) => beginResize(event, field, "w")}
+                          onPointerMove={onPointerMove}
+                          onPointerUp={onPointerUp}
+                          onPointerCancel={onPointerUp}
+                        />
+                        <button
+                          type="button"
+                          className="placement-handle handle-n"
+                          aria-label={`Resize ${field.name} height`}
+                          onPointerDown={(event) => beginResize(event, field, "n")}
+                          onPointerMove={onPointerMove}
+                          onPointerUp={onPointerUp}
+                          onPointerCancel={onPointerUp}
+                        />
+                        <button
+                          type="button"
+                          className="placement-handle handle-s"
+                          aria-label={`Resize ${field.name} from bottom`}
+                          onPointerDown={(event) => beginResize(event, field, "s")}
+                          onPointerMove={onPointerMove}
+                          onPointerUp={onPointerUp}
+                          onPointerCancel={onPointerUp}
+                        />
+                      </>
+                    ) : null}
                     {expanded ? (
                       <div
                         className="placement-chrome"
