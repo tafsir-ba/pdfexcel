@@ -30,10 +30,13 @@ test("server-renders the PDF Mail Merge product", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<title>PDF Mail Merge from Excel or CSV<\/title>/i);
-  assert.match(html, /PDF mail merge from Excel or CSV\./);
+  assert.match(html, /Batch-fill PDF forms from Excel or CSV\./);
   assert.match(html, /No Acrobat/);
-  assert.match(html, /First 3 free/);
-  assert.match(html, /Choose your PDF template and recipient data/);
+  assert.match(html, /Generate 3 PDFs free/);
+  assert.match(html, /Add your PDF form and spreadsheet/);
+  assert.match(html, /Map fields/);
+  assert.match(html, /Download PDFs/);
+  assert.match(html, /one completed PDF per row/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
