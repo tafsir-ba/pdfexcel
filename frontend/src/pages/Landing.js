@@ -90,7 +90,7 @@ export default function Landing() {
               className="text-center md:text-left"
             >
               <div className="font-heading text-3xl font-bold tracking-tight text-ink md:text-4xl">
-                {s.value}<span className="text-brand">{s.suffix}</span>
+                <span className={i === 0 ? "text-grass" : ""}>{s.value}</span><span className="text-brand">{s.suffix}</span>
               </div>
               <div className="mt-1 text-xs text-ink-soft md:text-sm">{s.label}</div>
             </motion.div>
