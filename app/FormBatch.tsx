@@ -258,7 +258,7 @@ function setPdfValue(
   }
 }
 
-export function FormBatch() {
+export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [fields, setFields] = useState<PdfField[]>([]);
@@ -274,13 +274,15 @@ export function FormBatch() {
   const [hasAccess, setHasAccess] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
-  const [livePricing, setLivePricing] = useState<LivePricing>({
-    amountCents: DEFAULT_PRICE_USD * 100,
-    currency: "usd",
-    durationDays: DEFAULT_DURATION_DAYS,
-    freeGenerationLimit: DEFAULT_FREE_ROWS,
-    displayPrice: `$${DEFAULT_PRICE_USD}`,
-  });
+  const [livePricing, setLivePricing] = useState<LivePricing>(
+    initialPricing || {
+      amountCents: DEFAULT_PRICE_USD * 100,
+      currency: "usd",
+      durationDays: DEFAULT_DURATION_DAYS,
+      freeGenerationLimit: DEFAULT_FREE_ROWS,
+      displayPrice: `$${DEFAULT_PRICE_USD}`,
+    },
+  );
   /** Applied once after PDF re-detect following Stripe workspace restore. */
   const pendingPlacementsRef = useRef<Record<string, StaticPlacement> | null>(null);
   const pendingRemovedRef = useRef<string[] | null>(null);
