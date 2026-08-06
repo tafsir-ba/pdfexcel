@@ -83,8 +83,9 @@ function fieldPlacementsFromFields(fields: PdfField[]): Record<string, StaticPla
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
-const PRICE_USD = 19;
-const FREE_ROWS = 3;
+const DEFAULT_PRICE_USD = 19;
+const DEFAULT_FREE_ROWS = 3;
+const DEFAULT_DURATION_DAYS = 30;
 const MAX_ROWS = 250;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 const MAX_CSV_BYTES = 5 * 1024 * 1024;
@@ -94,6 +95,14 @@ const WORKSPACE_KEY = "latest";
 const ACCESS_KEY = "formbatch-access";
 const DEVICE_KEY = "formbatch-device";
 let unicodeFontPromise: Promise<ArrayBuffer> | null = null;
+
+type LivePricing = {
+  amountCents: number;
+  currency: string;
+  durationDays: number;
+  freeGenerationLimit: number;
+  displayPrice: string;
+};
 
 function loadUnicodeFont() {
   if (!unicodeFontPromise) {
@@ -204,6 +213,26 @@ function getDeviceId() {
   return created;
 }
 
+/** Generation metadata only — never PDF/CSV contents. Soft-fails so observability never blocks downloads. */
+function reportGenerationEvent(payload: {
+  eventType: "free_preview" | "paid_batch" | "failed_generation";
+  rowsProcessed: number;
+  pdfsGenerated: number;
+  templateFilename?: string;
+  csvFilename?: string;
+  zipFilename?: string;
+  success?: boolean;
+  errorCode?: string;
+}) {
+  void fetch("/api/usage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId: getDeviceId(), ...payload }),
+  }).catch(() => {
+    /* ignore */
+  });
+}
+
 function setPdfValue(
   field: ReturnType<ReturnType<PDFDocument["getForm"]>["getField"]>,
   value: string,
@@ -229,7 +258,7 @@ function setPdfValue(
   }
 }
 
-export function FormBatch() {
+export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [fields, setFields] = useState<PdfField[]>([]);
@@ -245,9 +274,22 @@ export function FormBatch() {
   const [hasAccess, setHasAccess] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
+  const [livePricing, setLivePricing] = useState<LivePricing>(
+    initialPricing || {
+      amountCents: DEFAULT_PRICE_USD * 100,
+      currency: "usd",
+      durationDays: DEFAULT_DURATION_DAYS,
+      freeGenerationLimit: DEFAULT_FREE_ROWS,
+      displayPrice: `$${DEFAULT_PRICE_USD}`,
+    },
+  );
   /** Applied once after PDF re-detect following Stripe workspace restore. */
   const pendingPlacementsRef = useRef<Record<string, StaticPlacement> | null>(null);
   const pendingRemovedRef = useRef<string[] | null>(null);
+
+  const freeRows = Math.max(1, livePricing.freeGenerationLimit || DEFAULT_FREE_ROWS);
+  const durationDays = livePricing.durationDays || DEFAULT_DURATION_DAYS;
+  const displayPrice = livePricing.displayPrice || `$${DEFAULT_PRICE_USD}`;
 
   const supportedFields = useMemo(
     () => fields.filter((field) => field.type !== "unsupported"),
@@ -314,6 +356,27 @@ export function FormBatch() {
   };
 
   useEffect(() => {
+    const loadLivePricing = async () => {
+      try {
+        const response = await fetch("/api/pricing", { cache: "no-store" });
+        if (!response.ok) return;
+        const plan = (await response.json()) as Partial<LivePricing> & { amountCents?: number };
+        if (typeof plan.amountCents !== "number" || plan.amountCents <= 0) return;
+        setLivePricing({
+          amountCents: plan.amountCents,
+          currency: plan.currency || "usd",
+          durationDays: plan.durationDays || DEFAULT_DURATION_DAYS,
+          freeGenerationLimit: plan.freeGenerationLimit || DEFAULT_FREE_ROWS,
+          displayPrice:
+            plan.displayPrice ||
+            `$${Math.round(plan.amountCents / 100)}`,
+        });
+      } catch {
+        /* keep defaults when pricing API is unavailable */
+      }
+    };
+    void loadLivePricing();
+
     const restoreStoredAccess = async () => {
       setHasAccess(Boolean(readStoredAccess()));
     };
@@ -354,7 +417,7 @@ export function FormBatch() {
           setFilenameColumn(saved.filenameColumn);
           setFlatten(saved.flatten);
         }
-        setNotice("Payment confirmed. Your full batch is unlocked on this device for 30 days.");
+        setNotice("Payment confirmed. Your full batch is unlocked on this device.");
         window.history.replaceState({}, "", window.location.pathname);
       } catch (verificationError) {
         setError(verificationError instanceof Error ? verificationError.message : "Payment verification failed.");
@@ -566,7 +629,7 @@ export function FormBatch() {
     setNotice("");
     try {
       const sourceBytes = await pdfFile.arrayBuffer();
-      const selectedRows = rows.slice(0, fullBatch ? rows.length : FREE_ROWS);
+      const selectedRows = rows.slice(0, fullBatch ? rows.length : freeRows);
       const archive = new JSZip();
       const acroFields = supportedFields.filter((field) => !field.placement);
       const staticFields = supportedFields.filter((field) => field.placement);
@@ -617,17 +680,36 @@ export function FormBatch() {
         "README.txt",
         `Generated by PDF Mail Merge\nDocuments: ${selectedRows.length}\nSource PDF: ${pdfFile.name}\nSource CSV: ${csvFile?.name || ""}\n`,
       );
+      const zipFilename = fullBatch ? "pdf-mail-merge-complete.zip" : "pdf-mail-merge-preview.zip";
       const blob = await archive.generateAsync({ type: "blob" });
-      downloadBlob(blob, fullBatch ? "pdf-mail-merge-complete.zip" : "pdf-mail-merge-preview.zip");
+      downloadBlob(blob, zipFilename);
+      reportGenerationEvent({
+        eventType: fullBatch ? "paid_batch" : "free_preview",
+        rowsProcessed: selectedRows.length,
+        pdfsGenerated: selectedRows.length,
+        templateFilename: pdfFile.name,
+        csvFilename: csvFile?.name,
+        zipFilename,
+        success: true,
+      });
       setNotice(
         fullBatch
           ? `${selectedRows.length} completed PDFs downloaded as a ZIP archive.`
           : `${selectedRows.length} preview PDFs downloaded.`,
       );
     } catch (generationError) {
-      setError(
-        generationError instanceof Error ? generationError.message : "The documents could not be generated.",
-      );
+      const message =
+        generationError instanceof Error ? generationError.message : "The documents could not be generated.";
+      reportGenerationEvent({
+        eventType: "failed_generation",
+        rowsProcessed: 0,
+        pdfsGenerated: 0,
+        templateFilename: pdfFile?.name,
+        csvFilename: csvFile?.name,
+        success: false,
+        errorCode: generationError instanceof Error ? generationError.name || "GenerationError" : "GenerationError",
+      });
+      setError(message);
     } finally {
       setBusy(null);
     }
@@ -996,7 +1078,7 @@ export function FormBatch() {
 
               <div className="action-row">
                 <button className="secondary-button" type="button" onClick={() => void generate(false)} disabled={Boolean(busy)}>
-                  <Download size={18} /> Generate {Math.min(FREE_ROWS, rows.length)} free
+                  <Download size={18} /> Generate {Math.min(freeRows, rows.length)} free
                 </button>
                 {hasAccess ? (
                   <button className="primary-button" type="button" onClick={() => void generate(true)} disabled={Boolean(busy)}>
@@ -1006,12 +1088,12 @@ export function FormBatch() {
                 ) : (
                   <button className="primary-button" type="button" onClick={beginCheckout} disabled={Boolean(busy)}>
                     {busy === "checkout" ? <RefreshCw className="spin" size={18} /> : <LockKeyhole size={18} />}
-                    Unlock full batch · ${PRICE_USD}
+                    Unlock full batch · {displayPrice}
                   </button>
                 )}
               </div>
               <p className="payment-note">
-                One payment unlocks unlimited batches on this device for 30 days. Secure checkout by Stripe.
+                One payment unlocks unlimited batches on this device for {durationDays} days. Secure checkout by Stripe.
               </p>
             </div>
           )}
@@ -1034,7 +1116,7 @@ export function FormBatch() {
         <div className="proof-facts">
           <span><strong>0</strong> files uploaded</span>
           <span><strong>250</strong> recipients per merge</span>
-          <span><strong>30 days</strong> paid access</span>
+          <span><strong>{durationDays} days</strong> paid access</span>
         </div>
       </section>
 

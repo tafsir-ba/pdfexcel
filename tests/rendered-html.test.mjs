@@ -46,10 +46,71 @@ test("includes legal routes and removes starter preview assets", async () => {
   assert.equal(privacy.status, 200);
   assert.equal(terms.status, 200);
   assert.match(await privacy.text(), /PDF and spreadsheet contents are processed locally/);
-  assert.match(await terms.text(), /USD 19 payment unlocks unlimited batches/);
+  assert.match(await terms.text(), /payment unlocks unlimited batches/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));
+});
+
+test("admin login page is served for operators", async () => {
+  const response = await render("/admin/login");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Admin sign in/i);
+  assert.match(html, /File contents are never stored/i);
+});
+
+test("production webhook rejects missing STRIPE_WEBHOOK_SECRET", async () => {
+  const previousEnv = process.env.NODE_ENV;
+  const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  process.env.NODE_ENV = "production";
+  delete process.env.STRIPE_WEBHOOK_SECRET;
+  try {
+    const worker = await loadWorker("webhook-prod-secret");
+    const response = await worker.fetch(
+      new Request("http://localhost/api/checkout/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "evt_test", type: "ping" }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /STRIPE_WEBHOOK_SECRET/);
+  } finally {
+    process.env.NODE_ENV = previousEnv;
+    if (previousSecret) process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+    else delete process.env.STRIPE_WEBHOOK_SECRET;
+  }
+});
+
+test("webhook with secret rejects invalid signatures", async () => {
+  const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "test";
+  process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+  try {
+    const worker = await loadWorker("webhook-bad-sig");
+    const response = await worker.fetch(
+      new Request("http://localhost/api/checkout/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": "t=1,v1=deadbeef",
+        },
+        body: JSON.stringify({ id: "evt_bad", type: "ping" }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Invalid signature/);
+  } finally {
+    process.env.NODE_ENV = previousEnv;
+    if (previousSecret) process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+    else delete process.env.STRIPE_WEBHOOK_SECRET;
+  }
 });
 
 test("checkout fails closed when a Stripe key is unavailable", async () => {
@@ -104,6 +165,7 @@ test("checkout sends Stripe the exact product, price, device, and return URLs", 
     assert.equal(parameters.get("line_items[0][price_data][product_data][name]"), "PDF Mail Merge 30-day access");
     assert.equal(parameters.get("metadata[device_id]"), "device-123");
     assert.equal(parameters.get("metadata[product]"), "formbatch_30_day_access");
+    assert.equal(parameters.get("payment_method_types[0]"), "card");
     assert.equal(parameters.get("success_url"), "https://formbatch.example/?session_id={CHECKOUT_SESSION_ID}");
     assert.equal(parameters.get("cancel_url"), "https://formbatch.example/?checkout=cancelled");
   } finally {
@@ -111,6 +173,35 @@ test("checkout sends Stripe the exact product, price, device, and return URLs", 
     if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
     else delete process.env.STRIPE_SECRET_KEY;
   }
+});
+
+test("public pricing API returns the live plan display fields", async () => {
+  const worker = await loadWorker("pricing-public");
+  const response = await worker.fetch(
+    new Request("https://formbatch.example/api/pricing"),
+    runtimeEnv,
+    runtimeContext,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(typeof body.amountCents, "number");
+  assert.ok(body.amountCents > 0);
+  assert.equal(typeof body.displayPrice, "string");
+  assert.match(body.displayPrice, /\$|USD|€|£|\d/);
+  assert.equal(typeof body.durationDays, "number");
+  assert.equal(typeof body.freeGenerationLimit, "number");
+  assert.equal(typeof body.productKey, "string");
+});
+
+test("health endpoint responds without auth", async () => {
+  const worker = await loadWorker("health");
+  const response = await worker.fetch(
+    new Request("https://formbatch.example/api/health"),
+    runtimeEnv,
+    runtimeContext,
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).ok, true);
 });
 
 test("verification accepts a paid matching device and rejects a forged device", async () => {

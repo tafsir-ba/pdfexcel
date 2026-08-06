@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { formatPlanPrice, resolveLivePlan } from "../../lib/live-pricing";
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  const plan = await resolveLivePlan();
+  const price = formatPlanPrice(plan.amountCents, plan.currency);
+
   return (
     <main className="legal-page">
       <Link className="back-link" href="/">← Back to PDF Mail Merge</Link>
@@ -9,7 +13,7 @@ export default function TermsPage() {
       <h2>Service</h2>
       <p>PDF Mail Merge fills supported PDF form fields and detected writing areas using recipient data from a CSV exported by Excel, Google Sheets, or another spreadsheet application. It produces a downloadable archive of individual PDFs. Customers remain responsible for reviewing generated documents before relying on or distributing them.</p>
       <h2>Paid access</h2>
-      <p>A USD 19 payment unlocks unlimited batches of up to 250 rows on the purchasing device for 30 days. Access is device-bound and is not transferable.</p>
+      <p>A {price} payment unlocks unlimited batches of up to 250 rows on the purchasing device for {plan.durationDays} days. Access is device-bound and is not transferable. The first {plan.freeGenerationLimit} generated PDFs per batch are available without payment.</p>
       <h2>Acceptable use</h2>
       <p>Do not use PDF Mail Merge for unlawful activity, fraud, impersonation, unauthorized document creation, or processing data you do not have the right to use.</p>
       <h2>Refunds</h2>

@@ -16,7 +16,11 @@ const SYNONYMS: Record<string, string[]> = {
   email: ["mail", "courriel"],
   telephone: ["phone", "tel", "mobile", "portable"],
   tel: ["phone", "telephone", "mobile"],
-  completiondate: ["issuedate", "faitle", "dated"],
+  // Document / attestation date — not birth date.
+  date: ["faitle", "completiondate", "issuedate", "documentdate", "dated"],
+  le: ["faitle", "completiondate", "issuedate", "dated", "date"],
+  completiondate: ["issuedate", "faitle", "dated", "date"],
+  faitle: ["completiondate", "issuedate", "dated", "date"],
   faita: ["city", "place", "lieu", "location"],
   signature: ["sign", "signed"],
   course: ["class", "training", "program"],
@@ -33,6 +37,29 @@ export function normalize(value: string) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+function isBirthDateToken(normalized: string) {
+  return (
+    normalized.includes("naissance") ||
+    normalized.includes("birth") ||
+    normalized.includes("dob") ||
+    /^ne+le$/.test(normalized) ||
+    normalized === "neele"
+  );
+}
+
+/** Plain document-date labels (PDF "Date" / ", le …"), not birth dates. */
+function isDocumentDateField(normalized: string) {
+  return (
+    normalized === "date" ||
+    normalized === "le" ||
+    normalized === "faitle" ||
+    normalized === "completiondate" ||
+    normalized === "issuedate" ||
+    normalized === "documentdate" ||
+    normalized === "dated"
+  );
+}
+
 function synonymKeys(normalizedField: string) {
   const keys = new Set<string>([normalizedField]);
 
@@ -46,12 +73,7 @@ function synonymKeys(normalizedField: string) {
   }
 
   // Birth-date phrases ("Date de naissance", "Né(e) le") without prefix-bleeding "date".
-  if (
-    normalizedField.includes("naissance") ||
-    normalizedField.includes("birth") ||
-    /^ne+le$/.test(normalizedField) ||
-    normalizedField === "neele"
-  ) {
+  if (isBirthDateToken(normalizedField)) {
     for (const alias of ["dob", "birthdate", "dateofbirth", "hostdob", "guestdob", "datedenaissance"]) {
       keys.add(alias);
     }
@@ -62,10 +84,32 @@ function synonymKeys(normalizedField: string) {
 
 function scoreHeaderMatch(fieldNormalized: string, headerNormalized: string) {
   if (!fieldNormalized || !headerNormalized) return 0;
+
+  // Never map a generic document "Date" onto a birth-date column (e.g. host_date_naissance).
+  if (isDocumentDateField(fieldNormalized) && !isBirthDateToken(fieldNormalized) && isBirthDateToken(headerNormalized)) {
+    return 0;
+  }
+  // Birth-date fields should not steal completion-date columns.
+  if (isBirthDateToken(fieldNormalized) && isDocumentDateField(headerNormalized) && !isBirthDateToken(headerNormalized)) {
+    return 0;
+  }
+
   if (fieldNormalized === headerNormalized) return 100;
 
   const synonyms = synonymKeys(fieldNormalized);
   if (synonyms.has(headerNormalized)) return 90;
+
+  // Birth-date ↔ birth-date and document-date ↔ document-date even when names differ
+  // (e.g. "Date de naissance" ↔ host_date_naissance, "Date" ↔ fait_le).
+  if (isBirthDateToken(fieldNormalized) && isBirthDateToken(headerNormalized)) return 85;
+  if (
+    isDocumentDateField(fieldNormalized) &&
+    !isBirthDateToken(fieldNormalized) &&
+    isDocumentDateField(headerNormalized) &&
+    !isBirthDateToken(headerNormalized)
+  ) {
+    return 85;
+  }
 
   // Prefer longer synonym keys so weak tokens do not steal columns.
   const synonymHits = [...synonyms]
@@ -73,11 +117,16 @@ function scoreHeaderMatch(fieldNormalized: string, headerNormalized: string) {
     .sort((left, right) => right.length - left.length);
 
   for (const key of synonymHits) {
+    // Generic "date" must not substring-match into hostdatenaissance etc.
+    if (key === "date" && isBirthDateToken(headerNormalized)) continue;
     if (headerNormalized.includes(key)) return 70;
     if (key.includes(headerNormalized) && headerNormalized.length >= 4) return 65;
   }
 
-  if (headerNormalized.includes(fieldNormalized) && fieldNormalized.length >= 4) return 60;
+  if (headerNormalized.includes(fieldNormalized) && fieldNormalized.length >= 4) {
+    if (fieldNormalized === "date" && isBirthDateToken(headerNormalized)) return 0;
+    return 60;
+  }
   if (fieldNormalized.includes(headerNormalized) && headerNormalized.length >= 4) return 55;
 
   return 0;

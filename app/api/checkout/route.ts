@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveLivePlan } from "../../../lib/live-pricing";
 
 export async function POST(request: NextRequest) {
   const secretKey = process.env.STRIPE_SECRET_KEY;
@@ -12,25 +13,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "This browser could not be identified." }, { status: 400 });
   }
 
+  const plan = await resolveLivePlan();
   const origin = new URL(request.url).origin;
   const parameters = new URLSearchParams();
   parameters.set("mode", "payment");
-  parameters.set("line_items[0][price_data][currency]", "usd");
-  parameters.set("line_items[0][price_data][unit_amount]", "1900");
-  parameters.set("line_items[0][price_data][product_data][name]", "PDF Mail Merge 30-day access");
-  parameters.set(
-    "line_items[0][price_data][product_data][description]",
-    "Unlimited spreadsheet-to-PDF mail merge batches on one device for 30 days",
-  );
+  parameters.set("line_items[0][price_data][currency]", plan.currency);
+  parameters.set("line_items[0][price_data][unit_amount]", String(plan.amountCents));
+  parameters.set("line_items[0][price_data][product_data][name]", plan.name);
+  parameters.set("line_items[0][price_data][product_data][description]", plan.description);
   parameters.set("line_items[0][quantity]", "1");
   parameters.set("success_url", `${origin}/?session_id={CHECKOUT_SESSION_ID}`);
   parameters.set("cancel_url", `${origin}/?checkout=cancelled`);
   parameters.set("metadata[device_id]", deviceId);
-  parameters.set("metadata[product]", "formbatch_30_day_access");
+  parameters.set("metadata[product]", plan.productKey);
+  parameters.set("metadata[duration_days]", String(plan.durationDays));
   parameters.set("payment_intent_data[metadata][device_id]", deviceId);
-  parameters.set("payment_intent_data[metadata][product]", "formbatch_30_day_access");
+  parameters.set("payment_intent_data[metadata][product]", plan.productKey);
   parameters.set("allow_promotion_codes", "true");
   parameters.set("billing_address_collection", "auto");
+  // Card-only avoids Stripe Dashboard Amazon Pay misconfig console noise for this flow.
+  parameters.set("payment_method_types[0]", "card");
 
   const stripeResponse = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
