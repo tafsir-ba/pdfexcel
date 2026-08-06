@@ -263,11 +263,14 @@ test("verification accepts a paid session on the original or another device", as
 test("verification sets a session cookie when the paid account already has a password", async () => {
   const previousKey = process.env.STRIPE_SECRET_KEY;
   const previousSecret = process.env.ADMIN_SESSION_SECRET;
+  const previousSqlite = process.env.ADMIN_SQLITE_PATH;
   const originalFetch = globalThis.fetch;
   process.env.STRIPE_SECRET_KEY = "sk_test_verify_session";
   process.env.ADMIN_SESSION_SECRET = "test-admin-secret";
+  process.env.ADMIN_SQLITE_PATH = `./data/test-verify-session-${process.pid}-${Date.now()}.sqlite`;
   const created = Math.floor(Date.now() / 1000) - 60;
-  const email = `returning-${process.pid}-${Date.now()}@example.com`;
+  const email = `returning-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
+  const sessionId = `cs_test_returning_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   globalThis.fetch = async () =>
     Response.json({
       payment_status: "paid",
@@ -285,7 +288,7 @@ test("verification sets a session cookie when the paid account already has a pas
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          sessionId: "cs_test_returning",
+          sessionId,
           deviceId: "device-returning",
           password: "password-returning",
         }),
@@ -297,7 +300,7 @@ test("verification sets a session cookie when the paid account already has a pas
 
     const verify = await worker.fetch(
       new Request(
-        "https://formbatch.example/api/checkout/verify?session_id=cs_test_returning&device_id=device-returning",
+        `https://formbatch.example/api/checkout/verify?session_id=${encodeURIComponent(sessionId)}&device_id=device-returning`,
       ),
       runtimeEnv,
       runtimeContext,
@@ -315,6 +318,8 @@ test("verification sets a session cookie when the paid account already has a pas
     else delete process.env.STRIPE_SECRET_KEY;
     if (previousSecret) process.env.ADMIN_SESSION_SECRET = previousSecret;
     else delete process.env.ADMIN_SESSION_SECRET;
+    if (previousSqlite) process.env.ADMIN_SQLITE_PATH = previousSqlite;
+    else delete process.env.ADMIN_SQLITE_PATH;
   }
 });
 
