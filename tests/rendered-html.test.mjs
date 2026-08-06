@@ -230,7 +230,7 @@ test("verification accepts a paid session on the original or another device", as
     assert.equal(paidBody.paid, true);
     assert.equal(paidBody.expiresAt, created * 1000 + 30 * 24 * 60 * 60 * 1000);
     assert.equal(paidBody.email, "buyer@example.com");
-    assert.equal(typeof paidBody.needsAccount, "boolean");
+    assert.equal(paidBody.needsAccount, true);
 
     // Same Checkout session can finish account setup / unlock on another screen.
     const otherDevice = await worker.fetch(
@@ -244,6 +244,113 @@ test("verification accepts a paid session on the original or another device", as
     globalThis.fetch = originalFetch;
     if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
     else delete process.env.STRIPE_SECRET_KEY;
+  }
+});
+
+test("account register refuses password overwrite when account already exists", async () => {
+  const previousKey = process.env.STRIPE_SECRET_KEY;
+  const previousSecret = process.env.ADMIN_SESSION_SECRET;
+  const originalFetch = globalThis.fetch;
+  process.env.STRIPE_SECRET_KEY = "sk_test_register";
+  process.env.ADMIN_SESSION_SECRET = "test-admin-secret";
+  const created = Math.floor(Date.now() / 1000) - 60;
+  const email = `owner-${process.pid}-${Date.now()}@example.com`;
+  globalThis.fetch = async () =>
+    Response.json({
+      payment_status: "paid",
+      created,
+      amount_total: 500,
+      currency: "usd",
+      customer_details: { email },
+      metadata: { device_id: "device-reg", product: "formbatch_30_day_access" },
+    });
+
+  try {
+    const worker = await loadWorker("account-register");
+    const first = await worker.fetch(
+      new Request("https://formbatch.example/api/account/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "cs_test_register",
+          deviceId: "device-reg",
+          password: "password-one",
+        }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(first.status, 200, await first.clone().text());
+    const firstBody = await first.json();
+    assert.equal(firstBody.ok, true);
+    assert.equal(firstBody.email, email);
+
+    const second = await worker.fetch(
+      new Request("https://formbatch.example/api/account/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "cs_test_register",
+          deviceId: "device-other",
+          password: "password-two",
+        }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(second.status, 409);
+    assert.match(await second.text(), /Sign in instead/i);
+
+    const login = await worker.fetch(
+      new Request("https://formbatch.example/api/account/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password: "password-one",
+          deviceId: "device-other",
+        }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(login.status, 200, await login.clone().text());
+    const loginBody = await login.json();
+    assert.equal(loginBody.ok, true);
+    assert.equal(loginBody.email, email);
+    assert.equal(typeof loginBody.expiresAt, "number");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
+    else delete process.env.STRIPE_SECRET_KEY;
+    if (previousSecret) process.env.ADMIN_SESSION_SECRET = previousSecret;
+    else delete process.env.ADMIN_SESSION_SECRET;
+  }
+});
+
+test("account login rejects wrong password and missing entitlement", async () => {
+  const previousSecret = process.env.ADMIN_SESSION_SECRET;
+  process.env.ADMIN_SESSION_SECRET = "test-admin-secret";
+  try {
+    const worker = await loadWorker("account-login-miss");
+    const response = await worker.fetch(
+      new Request("https://formbatch.example/api/account/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "nobody@example.com",
+          password: "wrong-password",
+          deviceId: "device-x",
+        }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(response.status, 401);
+    assert.match(await response.text(), /Incorrect email or password/i);
+  } finally {
+    if (previousSecret) process.env.ADMIN_SESSION_SECRET = previousSecret;
+    else delete process.env.ADMIN_SESSION_SECRET;
   }
 });
 

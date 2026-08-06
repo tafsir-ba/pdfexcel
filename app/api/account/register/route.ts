@@ -60,23 +60,23 @@ export async function POST(request: NextRequest) {
 
   const productKey = session.metadata?.product || DEFAULT_PRODUCT;
   const email = (session.customer_details?.email || session.customer_email || "").trim().toLowerCase();
-  if (
-    session.payment_status !== "paid" ||
-    productKey !== DEFAULT_PRODUCT ||
-    !email
-  ) {
+  if (session.payment_status !== "paid" || !email) {
     return NextResponse.json({ error: "No completed payment with email was found." }, { status: 402 });
   }
 
   const createdAt = (session.created || Math.floor(Date.now() / 1000)) * 1000;
   const result = await withAdminDb(async (db) => {
-    let durationDays = DEFAULT_DURATION_DAYS;
     const [plan] = await db
       .select()
       .from(pricingPlans)
-      .where(and(eq(pricingPlans.productKey, productKey), eq(pricingPlans.active, true)))
+      .where(and(eq(pricingPlans.productKey, productKey), eq(pricingPlans.active, true), eq(pricingPlans.archived, false)))
       .limit(1);
-    durationDays = plan?.durationDays || DEFAULT_DURATION_DAYS;
+    const allowedProduct =
+      Boolean(plan) || productKey === DEFAULT_PRODUCT;
+    if (!allowedProduct) {
+      return { error: "No completed payment with email was found.", status: 402 as const };
+    }
+    const durationDays = plan?.durationDays || DEFAULT_DURATION_DAYS;
 
     const expiresAt = createdAt + durationDays * 24 * 60 * 60 * 1000;
     if (expiresAt <= Date.now()) {
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       deviceId,
       email,
       stripeCustomerId: typeof session.customer === "string" ? session.customer : null,
-      amountCents: session.amount_total ?? 1900,
+      amountCents: session.amount_total ?? plan?.amountCents ?? 1900,
       currency: session.currency || "usd",
       createdMs: createdAt,
       durationDays,
@@ -99,6 +99,13 @@ export async function POST(request: NextRequest) {
     const customer = await findCustomerByEmail(db, email);
     if (!customer) {
       return { error: "Customer record could not be created.", status: 500 as const };
+    }
+
+    if (customer.passwordHash) {
+      return {
+        error: "An account already exists for this email. Sign in instead.",
+        status: 409 as const,
+      };
     }
 
     await setCustomerPassword(db, customer.id, password);
