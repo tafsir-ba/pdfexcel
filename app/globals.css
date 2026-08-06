@@ -1368,27 +1368,65 @@ h1, h2, h3, p { margin-top: 0; }
 .use-copy { display: flex; align-items: end; justify-content: space-between; gap: 30px; }
 .use-copy .eyebrow { color: var(--brand); }
 .use-copy h2 { max-width: 560px; margin: 10px 0 0; font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.03em; }
+.use-explore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+.use-explore:hover { color: var(--brand-hover); }
 .use-grid {
   margin-top: 28px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
 }
 .use-item {
-  min-height: 140px;
-  padding: 22px;
+  padding: 28px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: flex-start;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: white;
   box-shadow: var(--shadow-soft);
   transition: transform 200ms ease, box-shadow 200ms ease;
 }
-.use-item:hover { transform: translateY(-3px); box-shadow: var(--shadow-medium); }
-.use-item span { color: var(--brand); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; }
-.use-item strong { font-family: var(--font-heading); font-size: 16px; font-weight: 600; }
+.use-item:hover { transform: translateY(-4px); box-shadow: var(--shadow-medium); }
+.use-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--brand);
+  background: var(--brand-soft);
+  transition: color 200ms ease, background 200ms ease;
+}
+.use-item:hover .use-icon {
+  color: white;
+  background: var(--brand);
+}
+.use-item h3 {
+  margin: 20px 0 8px;
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 600;
+}
+.use-item p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.6;
+}
 
 footer {
   position: relative;
@@ -1424,7 +1462,8 @@ footer nav a:hover { color: var(--brand); }
   .how-grid { grid-template-columns: 1fr; }
   .proof-band { grid-template-columns: 1fr; gap: 24px; padding: 36px 24px; }
   .output-settings { grid-template-columns: 1fr; }
-  .use-grid { grid-template-columns: 1fr 1fr; }
+  .use-copy { flex-direction: column; align-items: flex-start; }
+  .use-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {

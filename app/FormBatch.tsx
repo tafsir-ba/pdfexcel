@@ -30,6 +30,7 @@ import {
   LockKeyhole,
   LogIn,
   LogOut,
+  Mail,
   RefreshCw,
   ShieldCheck,
   Square,
@@ -2166,18 +2167,36 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
             <span className="eyebrow">Use cases</span>
             <h2>One template. Any document.</h2>
           </div>
+          <button className="use-explore" type="button" onClick={scrollToTool}>
+            Explore the flow
+            <ArrowRight size={16} />
+          </button>
         </div>
         <div className="use-grid">
           {[
-            ["01", "Certificates"],
-            ["02", "Letters"],
-            ["03", "Application forms"],
-            ["04", "Address forms"],
-          ].map(([num, item]) => (
-            <div className="use-item" key={item}>
-              <span>{num}</span>
-              <strong>{item}</strong>
-            </div>
+            {
+              icon: Award,
+              title: "Certificates",
+              body: "Course completions, awards and diplomas — hundreds at once, each personalized.",
+            },
+            {
+              icon: Mail,
+              title: "Letters",
+              body: "Offer letters, invitations and personalized notices generated from a single template.",
+            },
+            {
+              icon: FileText,
+              title: "Application Forms",
+              body: "Pre-fill address, membership and application forms directly from your spreadsheet.",
+            },
+          ].map((item) => (
+            <article className="use-item" key={item.title}>
+              <span className="use-icon" aria-hidden="true">
+                <item.icon size={24} strokeWidth={2} />
+              </span>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
           ))}
         </div>
       </section>
