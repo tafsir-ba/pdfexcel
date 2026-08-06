@@ -13,6 +13,7 @@ import {
   detectStaticPdfFields,
   isCheckboxChecked,
 } from "../app/static-pdf.ts";
+import { autoMapFields, reconcileFieldMapping } from "../app/mapping.ts";
 
 test("the built-in sample is readable and includes five complete data rows", async () => {
   const sample = await createDemoFiles();
@@ -164,4 +165,30 @@ test("printed checkboxes draw a mark only when their rule passes", () => {
   draws.length = 0;
   applyStaticPdfFields(document, [field], { Approved: CHECKBOX_ALWAYS }, {}, {});
   assert.equal(draws.length, 1);
+});
+
+test("mapping reconcile preserves Always-check and intentional blank values", () => {
+  const fields = [{ name: "Approved" }, { name: "Full Name" }, { name: "Course" }];
+  const headers = ["Full Name", "Approved", "Course"];
+
+  assert.deepEqual(autoMapFields(fields, headers), {
+    Approved: "Approved",
+    "Full Name": "Full Name",
+    Course: "Course",
+  });
+
+  const restored = reconcileFieldMapping(fields, headers, {
+    Approved: CHECKBOX_ALWAYS,
+    "Full Name": "",
+    Course: "Course",
+  });
+  assert.equal(restored.Approved, CHECKBOX_ALWAYS);
+  assert.equal(restored["Full Name"], "");
+  assert.equal(restored.Course, "Course");
+
+  const remapped = reconcileFieldMapping(fields, headers, {
+    Approved: "Missing Column",
+  });
+  assert.equal(remapped.Approved, "Approved");
+  assert.equal(remapped["Full Name"], "Full Name");
 });

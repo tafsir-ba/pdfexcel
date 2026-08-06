@@ -38,5 +38,13 @@ export async function GET(request: NextRequest) {
   }
 
   const createdAt = (session.created || Math.floor(Date.now() / 1000)) * 1000;
-  return NextResponse.json({ paid: true, expiresAt: createdAt + THIRTY_DAYS_MS });
+  const expiresAt = createdAt + THIRTY_DAYS_MS;
+  if (expiresAt <= Date.now()) {
+    return NextResponse.json(
+      { paid: false, error: "This PDF Mail Merge payment has expired." },
+      { status: 402 },
+    );
+  }
+
+  return NextResponse.json({ paid: true, expiresAt });
 }

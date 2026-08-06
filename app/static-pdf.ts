@@ -16,7 +16,6 @@ export type DetectedStaticField = {
 };
 
 export const CHECKBOX_ALWAYS = "__formbatch_always_checked__";
-
 const TRUE_CHECKBOX_VALUES = /^(1|true|yes|y|checked|x|oui)$/i;
 
 export function isCheckboxChecked(
@@ -221,7 +220,6 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
     // Use host fonts instead of fetching pdf.js standard-font packs. Keeps
     // printed-form detection local (no CDN) and avoids Node/browser warnings.
     useSystemFonts: true,
-    disableWorker: typeof window === "undefined",
   });
   const document = await loadingTask.promise;
   const counts = new Map<string, number>();

@@ -4,7 +4,6 @@ import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 const data = new Uint8Array(await readFile(process.argv[2]));
 const document = await getDocument({
   data,
-  disableWorker: true,
   useSystemFonts: true,
 }).promise;
 const page = await document.getPage(1);

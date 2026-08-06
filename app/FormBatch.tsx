@@ -47,6 +47,7 @@ import {
   type DetectedStaticField,
   type StaticPlacement,
 } from "./static-pdf";
+import { reconcileFieldMapping } from "./mapping";
 
 type Row = Record<string, string>;
 
@@ -94,10 +95,6 @@ function loadUnicodeFont() {
   return unicodeFontPromise;
 }
 
-function normalize(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
 function sanitizeFilename(value: string, fallback: string) {
   const cleaned = value
     .trim()
@@ -116,19 +113,24 @@ function fieldType(field: unknown): PdfField["type"] {
   return "unsupported";
 }
 
-function autoMapFields(fields: PdfField[], headers: string[]) {
-  const next: Record<string, string> = {};
-  const normalizedHeaders = headers.map((header) => ({
-    header,
-    normalized: normalize(header),
-  }));
-
-  for (const field of fields) {
-    const target = normalize(field.name.replace(/\s+\(\d+\)$/, ""));
-    const exact = normalizedHeaders.find((item) => item.normalized === target);
-    next[field.name] = exact?.header || "";
+function readStoredAccess(): { expiresAt: number; sessionId?: string } | null {
+  const stored = localStorage.getItem(ACCESS_KEY);
+  if (!stored) return null;
+  try {
+    const access = JSON.parse(stored) as { expiresAt?: number; sessionId?: string };
+    if (typeof access.expiresAt !== "number") {
+      localStorage.removeItem(ACCESS_KEY);
+      return null;
+    }
+    if (access.expiresAt <= Date.now()) {
+      localStorage.removeItem(ACCESS_KEY);
+      return null;
+    }
+    return { expiresAt: access.expiresAt, sessionId: access.sessionId };
+  } catch {
+    localStorage.removeItem(ACCESS_KEY);
+    return null;
   }
-  return next;
 }
 
 function openWorkspaceDb() {
@@ -239,15 +241,7 @@ export function FormBatch() {
 
   useEffect(() => {
     const restoreStoredAccess = async () => {
-      const stored = localStorage.getItem(ACCESS_KEY);
-      if (stored) {
-        try {
-          const access = JSON.parse(stored) as { expiresAt: number };
-          if (access.expiresAt > Date.now()) setHasAccess(true);
-        } catch {
-          localStorage.removeItem(ACCESS_KEY);
-        }
-      }
+      setHasAccess(Boolean(readStoredAccess()));
     };
     void restoreStoredAccess();
 
@@ -262,7 +256,12 @@ export function FormBatch() {
           `/api/checkout/verify?session_id=${encodeURIComponent(sessionId)}&device_id=${encodeURIComponent(deviceId)}`,
         );
         const result = (await response.json()) as { paid?: boolean; expiresAt?: number; error?: string };
-        if (!response.ok || !result.paid || !result.expiresAt) {
+        if (
+          !response.ok ||
+          !result.paid ||
+          typeof result.expiresAt !== "number" ||
+          result.expiresAt <= Date.now()
+        ) {
           throw new Error(result.error || "Payment could not be verified.");
         }
         localStorage.setItem(
@@ -378,18 +377,7 @@ export function FormBatch() {
   useEffect(() => {
     if (!supportedFields.length || !headers.length) return;
     const reconcileMapping = async () => {
-      setMapping((current) => {
-        const automatic = autoMapFields(supportedFields, headers);
-        return Object.fromEntries(
-          supportedFields.map((field) => {
-            const existing = current[field.name];
-            return [
-              field.name,
-              existing && headers.includes(existing) ? existing : automatic[field.name] || "",
-            ];
-          }),
-        );
-      });
+      setMapping((current) => reconcileFieldMapping(supportedFields, headers, current));
     };
     void reconcileMapping();
   }, [headers, supportedFields]);
@@ -456,9 +444,14 @@ export function FormBatch() {
 
   const generate = async (fullBatch: boolean) => {
     if (!pdfFile || !isReady) return;
-    if (fullBatch && !hasAccess) {
-      setError("Unlock the full batch before generating more than three documents.");
-      return;
+    if (fullBatch) {
+      const access = readStoredAccess();
+      if (!access) {
+        setHasAccess(false);
+        setError("Unlock the full batch before generating more than three documents.");
+        return;
+      }
+      setHasAccess(true);
     }
 
     setBusy("generating");

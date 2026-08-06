@@ -117,10 +117,11 @@ test("verification accepts a paid matching device and rejects a forged device", 
   const previousKey = process.env.STRIPE_SECRET_KEY;
   const originalFetch = globalThis.fetch;
   process.env.STRIPE_SECRET_KEY = "sk_test_verify";
+  const created = Math.floor(Date.now() / 1000) - 60;
   globalThis.fetch = async () =>
     Response.json({
       payment_status: "paid",
-      created: 1_700_000_000,
+      created,
       metadata: { device_id: "device-123", product: "formbatch_30_day_access" },
     });
 
@@ -134,7 +135,7 @@ test("verification accepts a paid matching device and rejects a forged device", 
     assert.equal(paidResponse.status, 200);
     assert.deepEqual(await paidResponse.json(), {
       paid: true,
-      expiresAt: 1_700_000_000_000 + 30 * 24 * 60 * 60 * 1000,
+      expiresAt: created * 1000 + 30 * 24 * 60 * 60 * 1000,
     });
 
     const forgedResponse = await worker.fetch(
@@ -144,6 +145,33 @@ test("verification accepts a paid matching device and rejects a forged device", 
     );
     assert.equal(forgedResponse.status, 402);
     assert.match(await forgedResponse.text(), /No completed PDF Mail Merge payment/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
+    else delete process.env.STRIPE_SECRET_KEY;
+  }
+});
+
+test("verification rejects an expired paid session", async () => {
+  const previousKey = process.env.STRIPE_SECRET_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.STRIPE_SECRET_KEY = "sk_test_expired";
+  globalThis.fetch = async () =>
+    Response.json({
+      payment_status: "paid",
+      created: 1_700_000_000,
+      metadata: { device_id: "device-123", product: "formbatch_30_day_access" },
+    });
+
+  try {
+    const worker = await loadWorker("verify-expired");
+    const response = await worker.fetch(
+      new Request("https://formbatch.example/api/checkout/verify?session_id=cs_test_old&device_id=device-123"),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(response.status, 402);
+    assert.match(await response.text(), /expired/i);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
