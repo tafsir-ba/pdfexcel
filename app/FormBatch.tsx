@@ -196,7 +196,7 @@ function setPdfValue(
     return;
   }
   if (field instanceof PDFCheckBox) {
-    const checked = /^(1|true|yes|y|checked|x)$/i.test(value.trim());
+    const checked = /^(1|true|yes|y|checked|x|oui)$/i.test(value.trim());
     if (checked) field.check();
     else field.uncheck();
     return;

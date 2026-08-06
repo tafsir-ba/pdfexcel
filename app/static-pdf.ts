@@ -216,7 +216,13 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
     "pdfjs-dist/legacy/build/pdf.mjs"
   );
 
-  const loadingTask = getDocument({ data: new Uint8Array(sourceBytes.slice(0)) });
+  const loadingTask = getDocument({
+    data: new Uint8Array(sourceBytes.slice(0)),
+    // Use host fonts instead of fetching pdf.js standard-font packs. Keeps
+    // printed-form detection local (no CDN) and avoids Node/browser warnings.
+    useSystemFonts: true,
+    disableWorker: typeof window === "undefined",
+  });
   const document = await loadingTask.promise;
   const counts = new Map<string, number>();
   const detected: DetectedStaticField[] = [];
