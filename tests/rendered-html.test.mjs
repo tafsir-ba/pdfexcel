@@ -50,9 +50,11 @@ test("includes legal routes and removes starter preview assets", async () => {
   ]);
   assert.equal(privacy.status, 200);
   assert.equal(terms.status, 200);
-  assert.match(await privacy.text(), /Paid account files/i);
-  assert.match(await privacy.text(), /generated ZIP archives/i);
-  assert.match(await terms.text(), /payment unlocks unlimited batches/i);
+  const privacyHtml = await privacy.text();
+  const termsHtml = await terms.text();
+  assert.match(privacyHtml, /Paid account files/i);
+  assert.match(privacyHtml, /generated ZIP archives/i);
+  assert.match(termsHtml, /payment unlocks unlimited batches/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));

@@ -24,7 +24,7 @@ import {
   type AdminSession,
   verifyPassword,
 } from "./admin-auth";
-import { deleteCustomerWorkspace, listWorkspaceCustomerIds } from "./customer-workspace";
+import { deleteCustomerWorkspace, listWorkspaceCustomerIds } from "./customer-workspace-store";
 
 export async function withAdminDb<T>(fn: (db: AppDb) => Promise<T>) {
   await ensureSchema();

@@ -748,6 +748,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     };
 
     void verify();
+    // Mount-only: restore session, optional Stripe return, and cloud workspace once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submitRegister = async () => {

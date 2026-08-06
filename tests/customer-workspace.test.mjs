@@ -3,40 +3,25 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import {
+  deleteCustomerWorkspace,
+  listCustomerBatches,
+  loadCustomerWorkspace,
+  readCustomerBatch,
+  saveCustomerBatch,
+  saveCustomerWorkspace,
+  workspaceSummary,
+} from "../lib/customer-workspace-store.ts";
 
 test("paid account workspace and batches round-trip on disk", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "pdfbatch-workspace-"));
   process.env.ADMIN_SQLITE_PATH = path.join(root, "admin.sqlite");
 
-  const {
-    deleteCustomerWorkspace,
-    listCustomerBatches,
-    loadCustomerWorkspace,
-    readCustomerBatch,
-    saveCustomerBatch,
-    saveCustomerWorkspace,
-    workspaceSummary,
-  } = await import("../lib/customer-workspace.ts");
-
-  const db = {
-    update() {
-      return {
-        set() {
-          return {
-            async where() {
-              return undefined;
-            },
-          };
-        },
-      };
-    },
-  };
-
   const customerId = 42;
   const pdfBase64 = Buffer.from("%PDF-1.4 workspace-test").toString("base64");
   const csvBase64 = Buffer.from("Name,City\nAda,London\n").toString("base64");
 
-  const meta = await saveCustomerWorkspace(db, customerId, {
+  const meta = await saveCustomerWorkspace(customerId, {
     pdfName: "template.pdf",
     csvName: "recipients.csv",
     pdfBase64,
@@ -92,10 +77,6 @@ test("paid account workspace and batches round-trip on disk", async () => {
 test("batch index keeps only the newest 25 archives", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "pdfbatch-batches-"));
   process.env.ADMIN_SQLITE_PATH = path.join(root, "admin.sqlite");
-
-  const { listCustomerBatches, saveCustomerBatch, deleteCustomerWorkspace } = await import(
-    "../lib/customer-workspace.ts"
-  );
 
   const customerId = 99;
   for (let index = 0; index < 27; index += 1) {
