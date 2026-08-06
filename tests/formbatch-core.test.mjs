@@ -13,6 +13,7 @@ import {
   detectStaticPdfFields,
   isCheckboxChecked,
   mergeSavedPlacements,
+  withoutRemovedFields,
 } from "../app/static-pdf.ts";
 import { autoMapFields, reconcileFieldMapping } from "../app/mapping.ts";
 
@@ -425,4 +426,14 @@ test("mergeSavedPlacements restores nudged boxes by field name after re-detect",
   assert.equal(merged[1].placement.x, 100);
   assert.deepEqual(mergeSavedPlacements(detected, null), detected);
   assert.deepEqual(mergeSavedPlacements(detected, undefined), detected);
+});
+
+test("withoutRemovedFields drops previewer-deleted writing areas", () => {
+  const fields = [{ name: "Nom" }, { name: "Page 1 field" }, { name: "A" }];
+  assert.deepEqual(
+    withoutRemovedFields(fields, ["Page 1 field", "A"]).map((field) => field.name),
+    ["Nom"],
+  );
+  assert.deepEqual(withoutRemovedFields(fields, null), fields);
+  assert.deepEqual(withoutRemovedFields(fields, []), fields);
 });

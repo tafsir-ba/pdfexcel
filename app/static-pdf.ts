@@ -39,6 +39,16 @@ export function mergeSavedPlacements<T extends { name: string; placement: Static
   });
 }
 
+/** Drop writing areas the user removed in the previewer. */
+export function withoutRemovedFields<T extends { name: string }>(
+  fields: T[],
+  removed?: string[] | null,
+): T[] {
+  if (!removed?.length) return fields;
+  const skip = new Set(removed);
+  return fields.filter((field) => !skip.has(field.name));
+}
+
 export function applyStaticPdfFields(
   document: PDFDocument,
   fields: DetectedStaticField[],

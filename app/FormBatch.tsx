@@ -46,6 +46,7 @@ import {
   detectStaticPdfFields,
   isCheckboxChecked,
   mergeSavedPlacements,
+  withoutRemovedFields,
   type DetectedStaticField,
   type StaticPlacement,
 } from "./static-pdf";
@@ -70,6 +71,8 @@ type StoredWorkspace = {
   flatten: boolean;
   /** User-nudged printed-form boxes keyed by field name (PDF points). */
   fieldPlacements?: Record<string, StaticPlacement>;
+  /** Writing areas the user removed in the previewer. */
+  removedFieldNames?: string[];
 };
 
 function fieldPlacementsFromFields(fields: PdfField[]): Record<string, StaticPlacement> | undefined {
@@ -240,8 +243,10 @@ export function FormBatch() {
   const [notice, setNotice] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
+  const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
   /** Applied once after PDF re-detect following Stripe workspace restore. */
   const pendingPlacementsRef = useRef<Record<string, StaticPlacement> | null>(null);
+  const pendingRemovedRef = useRef<string[] | null>(null);
 
   const supportedFields = useMemo(
     () => fields.filter((field) => field.type !== "unsupported"),
@@ -268,6 +273,21 @@ export function FormBatch() {
     setFields((current) =>
       current.map((field) => (field.name === name ? { ...field, placement } : field)),
     );
+  };
+
+  const mapPrintedField = (name: string, value: string) => {
+    setMapping((current) => ({ ...current, [name]: value }));
+  };
+
+  const removePrintedField = (name: string) => {
+    setRemovedFieldNames((current) => (current.includes(name) ? current : [...current, name]));
+    setFields((current) => current.filter((field) => field.name !== name));
+    setMapping((current) => {
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+    setSelectedField((current) => (current === name ? null : current));
   };
 
   useEffect(() => {
@@ -303,6 +323,8 @@ export function FormBatch() {
         const saved = await loadWorkspace();
         if (saved) {
           pendingPlacementsRef.current = saved.fieldPlacements || null;
+          pendingRemovedRef.current = saved.removedFieldNames || null;
+          setRemovedFieldNames(saved.removedFieldNames || []);
           setPdfFile(new File([saved.pdfBytes], saved.pdfName, { type: "application/pdf" }));
           setCsvFile(new File([saved.csvBytes || saved.csvText || ""], saved.csvName, { type: "text/csv" }));
           setMapping(saved.mapping);
@@ -339,15 +361,23 @@ export function FormBatch() {
             throw new Error("No fillable fields or blank writing lines could be detected in this PDF.");
           }
           const restored = pendingPlacementsRef.current;
+          const removed = pendingRemovedRef.current;
           pendingPlacementsRef.current = null;
-          setFields(mergeSavedPlacements(staticFields, restored));
+          pendingRemovedRef.current = null;
+          const kept = withoutRemovedFields(mergeSavedPlacements(staticFields, restored), removed);
+          if (removed) setRemovedFieldNames(removed);
+          setFields(kept);
           setNotice(
-            restored
-              ? `Printed form restored. ${staticFields.length} writing areas loaded with your saved alignment.`
-              : `Printed form detected. ${staticFields.length} writing areas found (dotted lines, underscores, and ruled lines). Match them to your CSV columns — names auto-map when labels are similar.`,
+            restored || removed?.length
+              ? `Printed form restored. ${kept.length} writing areas ready${
+                  removed?.length ? ` (${removed.length} removed earlier)` : ""
+                }.`
+              : `Printed form detected. ${kept.length} writing areas found (dotted lines, underscores, and ruled lines). Match them on the preview — names auto-map when labels are similar.`,
           );
         } else {
           pendingPlacementsRef.current = null;
+          pendingRemovedRef.current = null;
+          setRemovedFieldNames([]);
           setFields(nextFields);
         }
       } catch (pdfError) {
@@ -434,6 +464,8 @@ export function FormBatch() {
       return;
     }
     pendingPlacementsRef.current = null;
+    pendingRemovedRef.current = null;
+    setRemovedFieldNames([]);
     setPdfFile(file);
     setError("");
     setNotice("");
@@ -471,6 +503,8 @@ export function FormBatch() {
     try {
       const demo = await createDemoFiles();
       pendingPlacementsRef.current = null;
+      pendingRemovedRef.current = null;
+      setRemovedFieldNames([]);
       setPdfFile(demo.pdf);
       setCsvFile(demo.csv);
       setNotice("Sample loaded. The first three generated PDFs are free to download.");
@@ -579,6 +613,7 @@ export function FormBatch() {
         filenameColumn,
         flatten,
         fieldPlacements: fieldPlacementsFromFields(fields),
+        removedFieldNames: removedFieldNames.length ? removedFieldNames : undefined,
       });
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -596,6 +631,8 @@ export function FormBatch() {
 
   const reset = () => {
     pendingPlacementsRef.current = null;
+    pendingRemovedRef.current = null;
+    setRemovedFieldNames([]);
     setPdfFile(null);
     setCsvFile(null);
     setFields([]);
@@ -735,7 +772,7 @@ export function FormBatch() {
               <div className="section-title-row">
                 <div>
                   <span className="section-number">02</span>
-                  <h3>Match PDF fields to spreadsheet columns</h3>
+                  <h3>{hasPrintedFields ? "Place fields & map columns" : "Match PDF fields to spreadsheet columns"}</h3>
                 </div>
                 <span className="mapping-count">{mappedCount}/{supportedFields.length} configured</span>
               </div>
@@ -743,13 +780,17 @@ export function FormBatch() {
                 <PlacementPreview
                   pdfFile={pdfFile}
                   fields={supportedFields}
+                  headers={headers}
+                  mapping={mapping}
                   selectedField={selectedField}
                   sampleValues={previewSamples}
                   onSelectField={setSelectedField}
                   onMoveField={movePrintedField}
+                  onMapField={mapPrintedField}
+                  onRemoveField={removePrintedField}
                 />
               )}
-              <div className="mapping-list">
+              <div className={`mapping-list ${hasPrintedFields ? "mapping-list-dense" : ""}`}>
                 {supportedFields.map((field) => (
                   <div
                     className={`mapping-row ${selectedField === field.name ? "selected" : ""}`}
@@ -760,7 +801,7 @@ export function FormBatch() {
                       <span className={`field-type ${field.type}`}>{field.type}</span>
                       <strong>{field.name}</strong>
                     </div>
-                    <ArrowRight size={17} />
+                    <ArrowRight size={14} />
                     {field.type === "checkbox" ? (
                       <div className="checkbox-rule-control" role="group" aria-label={`Checkbox rule for ${field.name}`}>
                         <button
@@ -770,7 +811,7 @@ export function FormBatch() {
                           title="Leave unchecked"
                           onClick={() => setMapping((current) => ({ ...current, [field.name]: "" }))}
                         >
-                          <Square size={15} />
+                          <Square size={14} />
                           <span>Unchecked</span>
                         </button>
                         <button
@@ -780,7 +821,7 @@ export function FormBatch() {
                           title="Always check"
                           onClick={() => setMapping((current) => ({ ...current, [field.name]: CHECKBOX_ALWAYS }))}
                         >
-                          <CheckSquare2 size={15} />
+                          <CheckSquare2 size={14} />
                           <span>Always</span>
                         </button>
                         <label className={`select-wrap checkbox-column ${
@@ -802,7 +843,7 @@ export function FormBatch() {
                               </option>
                             ))}
                           </select>
-                          <ChevronDown size={16} />
+                          <ChevronDown size={14} />
                         </label>
                       </div>
                     ) : (
@@ -817,9 +858,23 @@ export function FormBatch() {
                           <option value="">Do not fill</option>
                           {headers.map((header) => <option key={header} value={header}>{header}</option>)}
                         </select>
-                        <ChevronDown size={16} />
+                        <ChevronDown size={14} />
                       </label>
                     )}
+                    {field.placement ? (
+                      <button
+                        type="button"
+                        className="mapping-remove"
+                        title={`Remove “${field.name}”`}
+                        aria-label={`Remove ${field.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removePrintedField(field.name);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>
