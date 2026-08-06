@@ -52,6 +52,14 @@ test("includes legal routes and removes starter preview assets", async () => {
   await access(new URL("../public/og.png", import.meta.url));
 });
 
+test("admin login page is served for operators", async () => {
+  const response = await render("/admin/login");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Admin sign in/i);
+  assert.match(html, /File contents are never stored/i);
+});
+
 test("checkout fails closed when a Stripe key is unavailable", async () => {
   const previousKey = process.env.STRIPE_SECRET_KEY;
   delete process.env.STRIPE_SECRET_KEY;
