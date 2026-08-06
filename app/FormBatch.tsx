@@ -14,6 +14,7 @@ import JSZip from "jszip";
 import Papa from "papaparse";
 import {
   ArrowRight,
+  Award,
   Check,
   ChevronLeft,
   ChevronDown,
@@ -24,6 +25,8 @@ import {
   FileCheck2,
   FileSpreadsheet,
   FileText,
+  GitMerge,
+  Lock,
   LockKeyhole,
   LogIn,
   LogOut,
@@ -39,7 +42,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import unicodeFontDataUrl from "./assets/NotoSans-Regular.ttf?inline";
 import { decodeCsvBytes } from "./csv";
 import { createDemoFiles } from "./demo-files";
@@ -100,6 +103,12 @@ const STORE_NAME = "workspace";
 const WORKSPACE_KEY = "latest";
 const ACCESS_KEY = "formbatch-access";
 const DEVICE_KEY = "formbatch-device";
+const HERO_DEMO_ROWS = [
+  { name: "Amara Okafor", course: "Advanced Data Privacy", id: "PB-10041" },
+  { name: "Julian Meyer", course: "Advanced Data Privacy", id: "PB-10042" },
+  { name: "Priya Nair", course: "Advanced Data Privacy", id: "PB-10043" },
+  { name: "Tobias Andersen", course: "Advanced Data Privacy", id: "PB-10044" },
+] as const;
 let unicodeFontPromise: Promise<ArrayBuffer> | null = null;
 
 type LivePricing = {
@@ -334,6 +343,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   const [cloudBusy, setCloudBusy] = useState<"loading" | "saving" | "batch" | null>(null);
   /** True only when a paid session cookie is present — gates My files / autosave / ZIP upload claims. */
   const [cloudSyncReady, setCloudSyncReady] = useState(false);
+  const [heroDemoIndex, setHeroDemoIndex] = useState(0);
+  const [navScrolled, setNavScrolled] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
   const [livePricing, setLivePricing] = useState<LivePricing>(
@@ -652,6 +663,20 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     // Intentionally sync when paid workspace inputs change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudSyncReady, pdfFile, csvFile, mapping, filenameColumn, flatten, fields, removedFieldNames, supportedFields.length]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setHeroDemoIndex((current) => (current + 1) % HERO_DEMO_ROWS.length);
+    }, 2800);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => setNavScrolled(window.scrollY > 12);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     const loadLivePricing = async () => {
@@ -1327,36 +1352,46 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   };
 
   const step = !pdfFile || !csvFile ? 1 : !isReady ? 2 : 3;
+  const heroRow = HERO_DEMO_ROWS[heroDemoIndex];
+  const scrollToTool = () => {
+    document.getElementById("tool")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
-    <main>
-      <header className="topbar">
-        <a className="brand" href="#top" aria-label="PDF Batch home">
-          <span className="brand-mark"><FileArchive size={19} /></span>
-          <span>PDF Batch</span>
-        </a>
-        <div className="topbar-actions">
-          <span className="privacy-chip">
-            <ShieldCheck size={15} />
-            {cloudSyncReady ? "Paid files sync to your account" : "Free preview stays in your browser"}
-          </span>
-          {hasAccess && accessUntilLabel ? (
-            <span className="access-chip" title={accountEmail || "Paid access"}>
-              <LockKeyhole size={14} /> Paid until {accessUntilLabel}
+    <main className="site-shell">
+      <header className={`topbar${navScrolled ? " is-scrolled" : ""}`}>
+        <div className="topbar-inner">
+          <a className="brand" href="#top" aria-label="PDF Batch home">
+            <span className="brand-mark"><FileArchive size={19} /></span>
+            <span>PDF Batch</span>
+          </a>
+          <div className="topbar-actions">
+            <span className="privacy-chip">
+              <span className="pulse-dot" aria-hidden="true" />
+              <Lock size={14} strokeWidth={2.5} />
+              {cloudSyncReady ? "Paid files sync to your account" : "Free preview stays in your browser"}
             </span>
-          ) : null}
-          {accountEmail ? (
-            <button className="text-button" type="button" onClick={() => void signOut()} title="Sign out">
-              <LogOut size={15} /> {accountEmail}
+            {hasAccess && accessUntilLabel ? (
+              <span className="access-chip" title={accountEmail || "Paid access"}>
+                <LockKeyhole size={14} /> Paid until {accessUntilLabel}
+              </span>
+            ) : null}
+            {accountEmail ? (
+              <button className="text-button" type="button" onClick={() => void signOut()} title="Sign out">
+                <LogOut size={15} /> {accountEmail}
+              </button>
+            ) : (
+              <button className="text-button" type="button" onClick={() => { setAccountPanel("login"); setError(""); }}>
+                <LogIn size={15} /> Restore purchase
+              </button>
+            )}
+            <button className="nav-cta" type="button" onClick={scrollToTool}>
+              Start free
             </button>
-          ) : (
-            <button className="text-button" type="button" onClick={() => { setAccountPanel("login"); setError(""); }}>
-              <LogIn size={15} /> Restore purchase
+            <button className="icon-button" type="button" onClick={reset} title="Start over" aria-label="Start over">
+              <RefreshCw size={18} />
             </button>
-          )}
-          <button className="icon-button" type="button" onClick={reset} title="Start over" aria-label="Start over">
-            <RefreshCw size={18} />
-          </button>
+          </div>
         </div>
       </header>
 
@@ -1457,37 +1492,96 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
 
       <section className="product-intro" id="top">
         <div className="intro-copy">
-          <span className="eyebrow"><Zap size={15} /> Fillable PDF + spreadsheet</span>
-          <h1>Batch-fill PDF forms from Excel or CSV.</h1>
+          <span className="privacy-chip" style={{ marginBottom: 4 }}>
+            <span className="pulse-dot" aria-hidden="true" />
+            <Lock size={14} strokeWidth={2.5} />
+            {cloudSyncReady ? "Paid files sync to your account" : "Free preview stays in your browser"}
+          </span>
+          <h1>Fill hundreds of PDFs from a spreadsheet.</h1>
           <p className="intro-text">
-            Upload your PDF form and spreadsheet, map columns once, then download a ZIP with one completed PDF per row.
+            Certificates, letters, and forms — batch-filled in seconds. Free preview stays in your browser; paid access
+            syncs your workspace and ZIP packs for {durationDays} days.
           </p>
+          <div className="hero-actions">
+            <button className="hero-cta" type="button" onClick={scrollToTool}>
+              Generate my batch
+              <ArrowRight size={16} />
+            </button>
+            <button className="hero-cta-secondary" type="button" onClick={() => void loadDemo()} disabled={Boolean(busy)}>
+              <Sparkles size={16} />
+              Try the sample
+            </button>
+          </div>
           <div className="trust-row">
+            <span><Zap size={16} /> Instant preview</span>
             <span><Check size={16} /> No Acrobat</span>
-            <span><Check size={16} /> Account re-download</span>
-            <span><Check size={16} /> Generate 3 PDFs free</span>
+            <span className="trust-ok"><ShieldCheck size={16} /> Account re-download</span>
+            <span className="trust-ok"><Check size={16} /> Generate {freeRows} PDFs free</span>
           </div>
         </div>
-        <div className="document-visual" aria-hidden="true">
-          <div className="visual-sheet back-sheet" />
-          <div className="visual-sheet front-sheet">
-            <span className="visual-kicker">CERTIFICATE</span>
-            <span className="visual-label">Presented to</span>
-            <strong>{rows[0]?.[headers[0]] || "Alex Morgan"}</strong>
-            <span className="visual-line" />
-            <span className="visual-small">Generated from row 1</span>
+        <div className="hero-demo" aria-hidden="true">
+          <div className="hero-demo-grid">
+            <div className="hero-sheet">
+              <div className="hero-sheet-head">
+                <FileSpreadsheet size={14} />
+                graduates.csv
+              </div>
+              <table className="hero-table">
+                <thead>
+                  <tr>
+                    <th>full_name</th>
+                    <th>course_name</th>
+                    <th>certificate_id</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {HERO_DEMO_ROWS.map((row, index) => (
+                    <tr className={index === heroDemoIndex ? "is-active" : undefined} key={row.id}>
+                      <td>{row.name}</td>
+                      <td>{row.course}</td>
+                      <td>{row.id}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <span className="hero-arrow"><ArrowRight size={18} /></span>
+            <div className="hero-cert">
+              <span className="hero-cert-badge"><Award size={18} /></span>
+              <p className="hero-cert-kicker">Certificate of Completion</p>
+              <p className="hero-cert-label">This certifies that</p>
+              <strong key={heroRow.id}>{heroRow.name}</strong>
+              <p className="hero-cert-course">
+                has completed <em>{heroRow.course}</em>
+              </p>
+            </div>
           </div>
-          <div className="csv-visual"><FileSpreadsheet size={18} /> Spreadsheet · {rows.length || 100} rows</div>
+          <p className="hero-demo-caption">
+            <FileCheck2 size={15} />
+            Generating <strong>{HERO_DEMO_ROWS.length}+</strong> certificates from 1 template
+          </p>
         </div>
       </section>
 
-      <section className="tool-band" aria-label="PDF batch fill tool">
+      <section className="tool-band" id="tool" aria-label="PDF batch fill tool">
         <div className="stepper" aria-label={`Step ${step} of 3`}>
-          {["Add files", "Map fields", "Download PDFs"].map((label, index) => (
-            <div className={`step-item ${step >= index + 1 ? "active" : ""}`} key={label}>
-              <span>{step > index + 1 ? <Check size={14} /> : index + 1}</span>
-              {label}
-            </div>
+          {["Add files", "Map fields", "Download"].map((label, index) => (
+            <Fragment key={label}>
+              <div
+                className={`step-item${step === index + 1 ? " active" : ""}${step > index + 1 ? " done" : ""}`}
+              >
+                <span className="step-index">{step > index + 1 ? <Check size={16} strokeWidth={3} /> : index + 1}</span>
+                <span className="step-copy">
+                  <small>Step {index + 1}</small>
+                  <strong>{label}</strong>
+                </span>
+              </div>
+              {index < 2 ? (
+                <div className={`step-connector${step > index + 1 ? " filled" : ""}`} aria-hidden="true">
+                  <span />
+                </div>
+              ) : null}
+            </Fragment>
           ))}
         </div>
 
@@ -1881,41 +1975,94 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         </div>
       </section>
 
+      <section className="how-band" aria-label="How it works">
+        <span className="eyebrow">How it works</span>
+        <h2>Three steps, zero learning curve</h2>
+        <div className="how-grid">
+          {[
+            {
+              icon: Upload,
+              title: "Drop your files",
+              body: "Add a fillable PDF and a CSV or Excel export. Free preview processing stays on this device.",
+            },
+            {
+              icon: GitMerge,
+              title: "Map the fields",
+              body: "Connect each PDF field to a spreadsheet column and preview any row live before you generate.",
+            },
+            {
+              icon: Download,
+              title: "Download the batch",
+              body: "Generate one PDF per row and grab them in a ZIP. Paid access keeps that ZIP under My files.",
+            },
+          ].map((item, index) => (
+            <article className="how-card" key={item.title}>
+              <span className="how-num">0{index + 1}</span>
+              <span className="how-icon"><item.icon size={22} strokeWidth={2} /></span>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="proof-band">
         <div>
-          <ShieldCheck size={24} />
-          <h2>Paid access includes your files.</h2>
+          <span className="proof-pill"><ShieldCheck size={15} /> Privacy with paid re-access</span>
+          <h2>Free preview stays local. Paid access keeps your workspace with you.</h2>
           <p>
             Free preview processing stays in your browser. With a paid account, your PDF template, spreadsheet,
             mappings, and generated ZIP archives sync so you can reopen and re-download them anytime during the paid
-            period.
+            period — including on another device after you sign in.
           </p>
         </div>
         <div className="proof-facts">
           <span><strong>Account</strong> restore anywhere</span>
-          <span><strong>250</strong> PDFs per batch</span>
+          <span><strong>{MAX_ROWS}</strong> PDFs per batch</span>
           <span><strong>{durationDays} days</strong> file re-access</span>
         </div>
       </section>
 
       <section className="use-cases">
         <div className="use-copy">
-          <span className="eyebrow">Built for repetitive documents</span>
-          <h2>One form. Every row.</h2>
+          <div>
+            <span className="eyebrow">Use cases</span>
+            <h2>One template. Any document.</h2>
+          </div>
         </div>
         <div className="use-grid">
-          {["Letters", "Certificates", "Application forms", "Address forms"].map((item, index) => (
+          {[
+            ["01", "Certificates"],
+            ["02", "Letters"],
+            ["03", "Application forms"],
+            ["04", "Address forms"],
+          ].map(([num, item]) => (
             <div className="use-item" key={item}>
-              <span>0{index + 1}</span>
+              <span>{num}</span>
               <strong>{item}</strong>
             </div>
           ))}
         </div>
       </section>
 
+      <section className="final-cta">
+        <h2>Ready to stop filling PDFs one by one?</h2>
+        <p>
+          Your first {freeRows} documents are free. Unlock unlimited batches for {durationDays} days when you need the
+          full pack — and keep generated ZIPs under My files.
+        </p>
+        <button className="hero-cta" type="button" onClick={scrollToTool}>
+          Start generating free
+          <ArrowRight size={16} />
+        </button>
+      </section>
+
       <footer>
         <div className="brand footer-brand"><span className="brand-mark"><FileArchive size={18} /></span><span>PDF Batch</span></div>
-        <p>Batch-fill PDF forms from a spreadsheet, directly in your browser.</p>
+        <p>
+          Batch-fill PDF forms from a spreadsheet. Free preview stays in your browser; paid access syncs files and ZIP
+          packs for re-download.
+        </p>
         <nav aria-label="Legal">
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>

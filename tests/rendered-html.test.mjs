@@ -28,15 +28,15 @@ test("server-renders the PDF Batch product", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
-  const html = await response.text();
+  const html = (await response.text()).replaceAll("<!-- -->", "");
   assert.match(html, /<title>PDF Batch/i);
   assert.match(html, /Batch-fill PDF forms from Excel or CSV\./);
   assert.match(html, /No Acrobat/);
   assert.match(html, /Generate 3 PDFs free/);
   assert.match(html, /Add your PDF form and spreadsheet/);
   assert.match(html, /Map fields/);
-  assert.match(html, /Download PDFs/);
-  assert.match(html, /one completed PDF per row/);
+  assert.match(html, /Download the batch/);
+  assert.match(html, /Each spreadsheet row becomes one filled PDF/);
   assert.match(html, /PDF Batch/);
   assert.doesNotMatch(html, /PDF Mail Merge/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
