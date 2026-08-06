@@ -275,12 +275,14 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
+  const [accessExpiresAt, setAccessExpiresAt] = useState<number | null>(null);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountPanel, setAccountPanel] = useState<"register" | "login" | null>(null);
   const [pendingCheckoutSession, setPendingCheckoutSession] = useState<string | null>(null);
   const [accountPassword, setAccountPassword] = useState("");
   const [accountPasswordConfirm, setAccountPasswordConfirm] = useState("");
   const [loginEmail, setLoginEmail] = useState("");
+  const [receiptSession, setReceiptSession] = useState("");
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
   const [livePricing, setLivePricing] = useState<LivePricing>(
@@ -370,7 +372,16 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       JSON.stringify({ sessionId, expiresAt }),
     );
     setHasAccess(true);
+    setAccessExpiresAt(expiresAt);
   };
+
+  const accessUntilLabel = accessExpiresAt
+    ? new Date(accessExpiresAt).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : null;
 
   const restoreWorkspaceAfterPayment = async () => {
     const saved = await loadWorkspace();
@@ -410,7 +421,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     const restoreAccess = async () => {
       setHasAccess(Boolean(readStoredAccess()));
       try {
-        const response = await fetch("/api/account/me", { cache: "no-store" });
+        const response = await fetch("/api/account/me", { cache: "no-store", credentials: "include" });
         if (!response.ok) return;
         const me = (await response.json()) as {
           authenticated?: boolean;
@@ -422,6 +433,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         if (me.hasAccess && typeof me.expiresAt === "number" && me.expiresAt > Date.now()) {
           grantLocalAccess(me.expiresAt);
           setAccountEmail(me.email || null);
+        } else if (me.authenticated && me.email) {
+          setAccountEmail(me.email);
         }
       } catch {
         /* ignore */
@@ -492,6 +505,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       const response = await fetch("/api/account/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           sessionId: pendingCheckoutSession,
           deviceId: getDeviceId(),
@@ -523,6 +537,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       const response = await fetch("/api/account/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           email: loginEmail,
           password: accountPassword,
@@ -538,7 +553,10 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       setAccountPanel(null);
       setAccountPassword("");
       setLoginEmail("");
-      setNotice(`Signed in as ${result.email}. Full batch generation is unlocked.`);
+      setReceiptSession("");
+      setNotice(
+        `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}. Upload your PDF and CSV on this computer to generate — files are not synced between devices.`,
+      );
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Sign-in failed.");
     } finally {
@@ -546,16 +564,62 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     }
   };
 
+  const submitReceiptRestore = async () => {
+    setBusy("account");
+    setError("");
+    try {
+      const response = await fetch("/api/account/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sessionId: receiptSession,
+          deviceId: getDeviceId(),
+        }),
+      });
+      const result = (await response.json()) as {
+        ok?: boolean;
+        email?: string;
+        expiresAt?: number;
+        needsPassword?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !result.ok || typeof result.expiresAt !== "number") {
+        throw new Error(result.error || "Purchase could not be restored.");
+      }
+      const sessionMatch = receiptSession.match(/cs_[A-Za-z0-9_]+/);
+      const sessionId = sessionMatch?.[0] || undefined;
+      grantLocalAccess(result.expiresAt, sessionId);
+      setAccountEmail(result.email || null);
+      setReceiptSession("");
+      if (result.needsPassword) {
+        setPendingCheckoutSession(sessionId || null);
+        setAccountPanel("register");
+        setNotice("Purchase found. Set a password so you can sign in on any device for the rest of your paid period.");
+      } else {
+        setAccountPanel(null);
+        setNotice(
+          `Purchase restored for ${result.email} until ${new Date(result.expiresAt).toLocaleDateString()}. Upload your PDF and CSV on this computer to generate.`,
+        );
+      }
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : "Purchase restore failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const signOut = async () => {
     try {
-      await fetch("/api/account/logout", { method: "POST" });
+      await fetch("/api/account/logout", { method: "POST", credentials: "include" });
     } catch {
       /* ignore */
     }
     localStorage.removeItem(ACCESS_KEY);
     setHasAccess(false);
+    setAccessExpiresAt(null);
     setAccountEmail(null);
-    setNotice("Signed out. Your files were never uploaded; only this browser unlock was cleared.");
+    setNotice("Signed out on this browser. Your purchase remains available — sign in again anytime during the paid period.");
   };
 
   useEffect(() => {
@@ -750,7 +814,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       }
       let access = readStoredAccess();
       try {
-        const response = await fetch("/api/account/me", { cache: "no-store" });
+        const response = await fetch("/api/account/me", { cache: "no-store", credentials: "include" });
         if (response.ok) {
           const me = (await response.json()) as {
             authenticated?: boolean;
@@ -930,13 +994,18 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         </a>
         <div className="topbar-actions">
           <span className="privacy-chip"><ShieldCheck size={15} /> Files stay on your device</span>
+          {hasAccess && accessUntilLabel ? (
+            <span className="access-chip" title={accountEmail || "Paid access"}>
+              <LockKeyhole size={14} /> Paid until {accessUntilLabel}
+            </span>
+          ) : null}
           {accountEmail ? (
             <button className="text-button" type="button" onClick={() => void signOut()} title="Sign out">
               <LogOut size={15} /> {accountEmail}
             </button>
           ) : (
             <button className="text-button" type="button" onClick={() => { setAccountPanel("login"); setError(""); }}>
-              <LogIn size={15} /> Sign in
+              <LogIn size={15} /> Restore purchase
             </button>
           )}
           <button className="icon-button" type="button" onClick={reset} title="Start over" aria-label="Start over">
@@ -946,11 +1015,11 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       </header>
 
       {accountPanel && (
-        <section className="account-panel" aria-label={accountPanel === "register" ? "Create account" : "Sign in"}>
+        <section className="account-panel" aria-label={accountPanel === "register" ? "Create account" : "Restore purchase"}>
           <div className="account-card">
             <div className="account-card-head">
               <UserRound size={18} />
-              <h2>{accountPanel === "register" ? "Create your access account" : "Restore paid access"}</h2>
+              <h2>{accountPanel === "register" ? "Create your access account" : "Restore your 30-day purchase"}</h2>
               {accountPanel === "login" ? (
                 <button className="icon-button" type="button" aria-label="Close" onClick={() => setAccountPanel(null)}>
                   <X size={16} />
@@ -993,7 +1062,10 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
               </>
             ) : (
               <>
-                <p>Sign in with the email and password from checkout to unlock full batches on this device.</p>
+                <p>
+                  Your purchase unlocks unlimited batches until it expires. Files are not stored in your account — after
+                  restoring access, upload the PDF and CSV again on this computer.
+                </p>
                 <label>
                   Email
                   <input
@@ -1015,6 +1087,21 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                 <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void submitLogin()}>
                   {busy === "account" ? <RefreshCw className="spin" size={18} /> : <LogIn size={18} />}
                   Sign in
+                </button>
+                <div className="account-divider">or restore from Stripe receipt</div>
+                <label>
+                  Checkout success link or session id
+                  <input
+                    type="text"
+                    placeholder="https://pdfbatch.app/?session_id=cs_… or cs_live_…"
+                    value={receiptSession}
+                    onChange={(event) => setReceiptSession(event.target.value)}
+                    autoComplete="off"
+                  />
+                </label>
+                <button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void submitReceiptRestore()}>
+                  {busy === "account" ? <RefreshCw className="spin" size={18} /> : <LockKeyhole size={18} />}
+                  Restore from receipt
                 </button>
               </>
             )}
@@ -1068,6 +1155,17 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
               <Sparkles size={16} /> Try the sample
             </button>
           </div>
+
+          {hasAccess && accessUntilLabel ? (
+            <div className="message success-message access-banner" role="status">
+              <Check size={18} />
+              <span>
+                Your purchase is active until <strong>{accessUntilLabel}</strong>
+                {accountEmail ? <> ({accountEmail})</> : null}. Upload your files on this computer to generate unlimited
+                batches — PDFs and spreadsheets are not synced between devices.
+              </span>
+            </div>
+          ) : null}
 
           <div className="upload-grid">
             <label
@@ -1336,13 +1434,13 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                 )}
               </div>
               <p className="payment-note">
-                One payment unlocks unlimited batches for {durationDays} days. After checkout, create a password with your
-                Stripe email so you can sign in on any device. Files still never leave your browser.
+                One payment unlocks unlimited batches for {durationDays} days. After checkout, create a password so you can
+                restore the purchase on any device. Your PDF/CSV stay on each computer and are never uploaded.
                 {!hasAccess && (
                   <>
                     {" "}
                     <button className="linkish" type="button" onClick={() => setAccountPanel("login")}>
-                      Already paid? Sign in
+                      Already paid? Restore purchase
                     </button>
                   </>
                 )}
