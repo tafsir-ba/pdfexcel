@@ -46,6 +46,8 @@ export function PlacementPreview({
   const [scale, setScale] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [pageIndex, setPageIndex] = useState(0);
+  /** Only show overlays once canvas matches this page (avoids page-switch misalignment). */
+  const [renderedPageIndex, setRenderedPageIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const dragRef = useRef<{
     name: string;
@@ -56,6 +58,7 @@ export function PlacementPreview({
   } | null>(null);
 
   const safePageIndex = Math.min(pageIndex, Math.max(0, pageCount - 1));
+  const pageReady = renderedPageIndex === safePageIndex && pageSize.height > 0;
 
   const placedFields = useMemo(
     () =>
@@ -97,8 +100,10 @@ export function PlacementPreview({
           await loadingTask.destroy();
           return;
         }
-        setPageCount(pdfDocument.numPages);
-        const page = await pdfDocument.getPage(safePageIndex + 1);
+        const nextPageCount = pdfDocument.numPages;
+        setPageCount(nextPageCount);
+        const pageNumber = Math.min(safePageIndex, nextPageCount - 1) + 1;
+        const page = await pdfDocument.getPage(pageNumber);
         const base = page.getViewport({ scale: 1 });
         const fitScale = Math.min(1.05, 760 / base.width);
         const viewport = page.getViewport({ scale: fitScale });
@@ -117,11 +122,17 @@ export function PlacementPreview({
         canvas.style.width = `${canvas.width}px`;
         canvas.style.height = `${canvas.height}px`;
         await page.render({ canvasContext: context, viewport, canvas }).promise;
+        if (cancelled) {
+          await loadingTask.destroy();
+          return;
+        }
         setPageSize({ width: base.width, height: base.height });
         setScale(fitScale);
+        setRenderedPageIndex(pageNumber - 1);
         await loadingTask.destroy();
       } catch (renderError) {
         if (!cancelled) {
+          setRenderedPageIndex(null);
           setError(
             renderError instanceof Error
               ? renderError.message
@@ -137,11 +148,12 @@ export function PlacementPreview({
     };
   }, [pdfFile, safePageIndex]);
 
+  /** Canvas geometry must match stored placement used by applyStaticPdfFields. */
   const toCanvas = (placement: StaticPlacement) => ({
     x: placement.x * scale,
     y: (pageSize.height - placement.y - placement.height) * scale,
-    width: Math.max(120, placement.width * scale),
-    height: Math.max(44, placement.height * scale),
+    width: Math.max(1, placement.width * scale),
+    height: Math.max(1, placement.height * scale),
   });
 
   const onPointerDown = (
@@ -194,7 +206,8 @@ export function PlacementPreview({
         <div>
           <h4>Place & map on the PDF</h4>
           <p>
-            Drag boxes onto blanks, pick a CSV column inside each box, or remove fields you do not need.
+            Drag the outlined fill area onto blanks. Map or remove from the toolbar above each box —
+            toolbar size does not change where text is written.
           </p>
         </div>
         {pageCount > 1 && (
@@ -241,23 +254,25 @@ export function PlacementPreview({
         <>
           <div className="placement-stage">
             <canvas ref={canvasRef} className="placement-canvas" />
-            {pageSize.height > 0 &&
+            {pageReady &&
               pageFields.map((field) => {
                 const box = toCanvas(field.placement);
                 const sample = sampleValues[field.name] || "";
                 const active = selectedField === field.name;
                 const mapped = mapping[field.name] || "";
+                const chromeWidth = Math.max(box.width, field.type === "checkbox" ? 132 : 148);
+                const chromeBelow = box.y < 56;
                 return (
                   <div
                     key={field.name}
-                    className={`placement-box ${active ? "active" : ""} ${field.type} ${
+                    className={`placement-anchor ${active ? "active" : ""} ${field.type} ${
                       mapped ? "mapped" : "unmapped"
-                    }`}
+                    } ${chromeBelow ? "chrome-below" : "chrome-above"}`}
                     style={{
                       left: box.x,
                       top: box.y,
                       width: box.width,
-                      minHeight: box.height,
+                      height: box.height,
                     }}
                     title={`Drag to position “${field.name}”`}
                     onPointerDown={(event) => onPointerDown(event, field)}
@@ -266,64 +281,77 @@ export function PlacementPreview({
                     onPointerCancel={onPointerUp}
                     onClick={() => onSelectField(field.name)}
                   >
-                    <div className="placement-box-toolbar">
-                      <span className="placement-drag" aria-hidden="true">
-                        <GripVertical size={12} />
-                      </span>
-                      <span className="placement-box-name">{field.name}</span>
-                      <button
-                        type="button"
-                        className="placement-remove"
-                        title={`Remove “${field.name}”`}
-                        aria-label={`Remove ${field.name}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRemoveField(field.name);
-                        }}
+                    <div
+                      className="placement-chrome"
+                      style={{ width: chromeWidth }}
+                      onPointerDown={(event) => onPointerDown(event, field)}
+                    >
+                      <div className="placement-box-toolbar">
+                        <span className="placement-drag" aria-hidden="true">
+                          <GripVertical size={12} />
+                        </span>
+                        <span className="placement-box-name">{field.name}</span>
+                        <button
+                          type="button"
+                          className="placement-remove"
+                          title={`Remove “${field.name}”`}
+                          aria-label={`Remove ${field.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRemoveField(field.name);
+                          }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                      <label
+                        className="placement-map-wrap"
                         onPointerDown={(event) => event.stopPropagation()}
                       >
-                        <X size={12} />
-                      </button>
+                        <span className="sr-only">CSV column for {field.name}</span>
+                        {field.type === "checkbox" ? (
+                          <select
+                            value={mapped}
+                            onChange={(event) => onMapField(field.name, event.target.value)}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <option value="">Unchecked</option>
+                            <option value={CHECKBOX_ALWAYS}>Always check</option>
+                            {headers.map((header) => (
+                              <option key={header} value={header}>
+                                When “{header}” is true
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <select
+                            value={mapped}
+                            onChange={(event) => onMapField(field.name, event.target.value)}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <option value="">Do not fill</option>
+                            {headers.map((header) => (
+                              <option key={header} value={header}>
+                                {header}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </label>
+                      {sample && mapped && mapped !== CHECKBOX_ALWAYS ? (
+                        <span className="placement-box-sample">{sample}</span>
+                      ) : null}
                     </div>
-                    <label className="placement-map-wrap" onPointerDown={(event) => event.stopPropagation()}>
-                      <span className="sr-only">CSV column for {field.name}</span>
-                      {field.type === "checkbox" ? (
-                        <select
-                          value={mapped}
-                          onChange={(event) => onMapField(field.name, event.target.value)}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <option value="">Unchecked</option>
-                          <option value={CHECKBOX_ALWAYS}>Always check</option>
-                          {headers.map((header) => (
-                            <option key={header} value={header}>
-                              When “{header}” is true
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <select
-                          value={mapped}
-                          onChange={(event) => onMapField(field.name, event.target.value)}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <option value="">Do not fill</option>
-                          {headers.map((header) => (
-                            <option key={header} value={header}>
-                              {header}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </label>
-                    {sample && mapped && mapped !== CHECKBOX_ALWAYS ? (
-                      <span className="placement-box-sample">{sample}</span>
-                    ) : null}
+                    <span className="placement-fill-outline" aria-hidden="true" />
                   </div>
                 );
               })}
           </div>
-          {pageFields.length === 0 && (
+          {!pageReady && !error && (
+            <p className="placement-preview-note">Loading page {safePageIndex + 1}…</p>
+          )}
+          {pageReady && pageFields.length === 0 && (
             <p className="placement-preview-note">
               No writing areas on page {safePageIndex + 1}. Use the page control to review other pages.
             </p>
