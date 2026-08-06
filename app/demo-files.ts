@@ -42,7 +42,7 @@ export async function createDemoFiles() {
     thickness: 1,
     color: rgb(0.83, 0.85, 0.84),
   });
-  page.drawText("Generated with PDF Mail Merge", {
+  page.drawText("Generated with PDF Batch", {
     x: 54,
     y: 294,
     size: 9,

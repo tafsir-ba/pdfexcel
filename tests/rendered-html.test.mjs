@@ -24,12 +24,12 @@ const runtimeEnv = {
 };
 const runtimeContext = { waitUntil() {}, passThroughOnException() {} };
 
-test("server-renders the PDF Mail Merge product", async () => {
+test("server-renders the PDF Batch product", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
-  assert.match(html, /<title>PDF Mail Merge from Excel or CSV<\/title>/i);
+  assert.match(html, /<title>PDF Batch/i);
   assert.match(html, /Batch-fill PDF forms from Excel or CSV\./);
   assert.match(html, /No Acrobat/);
   assert.match(html, /Generate 3 PDFs free/);
@@ -37,6 +37,8 @@ test("server-renders the PDF Mail Merge product", async () => {
   assert.match(html, /Map fields/);
   assert.match(html, /Download PDFs/);
   assert.match(html, /one completed PDF per row/);
+  assert.match(html, /PDF Batch/);
+  assert.doesNotMatch(html, /PDF Mail Merge/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -150,9 +152,13 @@ test("checkout sends Stripe the exact product, price, device, and return URLs", 
   try {
     const worker = await loadWorker("checkout-contract");
     const response = await worker.fetch(
-      new Request("https://formbatch.example/api/checkout", {
+      new Request("http://127.0.0.1/api/checkout", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-proto": "https",
+          "x-forwarded-host": "pdfbatch.app",
+        },
         body: JSON.stringify({ deviceId: "device-123" }),
       }),
       runtimeEnv,
@@ -165,13 +171,13 @@ test("checkout sends Stripe the exact product, price, device, and return URLs", 
     const parameters = new URLSearchParams(stripeRequest.init.body);
     assert.equal(parameters.get("line_items[0][price_data][unit_amount]"), "1900");
     assert.equal(parameters.get("line_items[0][price_data][currency]"), "usd");
-    assert.equal(parameters.get("line_items[0][price_data][product_data][name]"), "PDF Mail Merge 30-day access");
+    assert.equal(parameters.get("line_items[0][price_data][product_data][name]"), "PDF Batch 30-day access");
     assert.equal(parameters.get("metadata[device_id]"), "device-123");
     assert.equal(parameters.get("metadata[product]"), "formbatch_30_day_access");
     assert.equal(parameters.get("payment_method_types[0]"), "card");
     assert.equal(parameters.get("customer_creation"), "always");
-    assert.equal(parameters.get("success_url"), "https://formbatch.example/?session_id={CHECKOUT_SESSION_ID}");
-    assert.equal(parameters.get("cancel_url"), "https://formbatch.example/?checkout=cancelled");
+    assert.equal(parameters.get("success_url"), "https://pdfbatch.app/?session_id={CHECKOUT_SESSION_ID}");
+    assert.equal(parameters.get("cancel_url"), "https://pdfbatch.app/?checkout=cancelled");
   } finally {
     globalThis.fetch = originalFetch;
     if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;

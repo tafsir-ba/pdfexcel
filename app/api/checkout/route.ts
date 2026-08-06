@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveLivePlan } from "../../../lib/live-pricing";
 
+/** Prefer forwarded HTTPS host so Stripe return URLs are never http:// behind nginx. */
+function publicOrigin(request: NextRequest) {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = forwardedHost || request.headers.get("host") || request.nextUrl.host;
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const proto =
+    forwardedProto ||
+    (request.nextUrl.protocol === "https:" ? "https" : host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
+
 export async function POST(request: NextRequest) {
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
@@ -14,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   const plan = await resolveLivePlan();
-  const origin = new URL(request.url).origin;
+  const origin = publicOrigin(request);
   const parameters = new URLSearchParams();
   parameters.set("mode", "payment");
   parameters.set("line_items[0][price_data][currency]", plan.currency);

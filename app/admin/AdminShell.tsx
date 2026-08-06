@@ -59,7 +59,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     <div className="admin-app">
       <aside className="admin-nav">
         <div className="admin-brand">
-          <strong>PDF Mail Merge</strong>
+          <strong>PDF Batch</strong>
           <span>Admin · observability</span>
         </div>
         <p className="admin-privacy">File contents are never stored.</p>
