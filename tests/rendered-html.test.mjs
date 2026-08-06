@@ -337,6 +337,54 @@ test("account register refuses password overwrite when account already exists", 
   }
 });
 
+test("account restore accepts a paid Stripe session id", async () => {
+  const previousKey = process.env.STRIPE_SECRET_KEY;
+  const previousSecret = process.env.ADMIN_SESSION_SECRET;
+  const originalFetch = globalThis.fetch;
+  process.env.STRIPE_SECRET_KEY = "sk_test_restore";
+  process.env.ADMIN_SESSION_SECRET = "test-admin-secret";
+  const created = Math.floor(Date.now() / 1000) - 60;
+  const email = `restore-${process.pid}-${Date.now()}@example.com`;
+  globalThis.fetch = async () =>
+    Response.json({
+      payment_status: "paid",
+      created,
+      amount_total: 100,
+      currency: "usd",
+      customer_details: { email },
+      metadata: { device_id: "device-old", product: "formbatch_30_day_access" },
+    });
+
+  try {
+    const worker = await loadWorker("account-restore");
+    const response = await worker.fetch(
+      new Request("https://pdfbatch.app/api/account/restore", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "https://pdfbatch.app/?session_id=cs_test_restore_abc",
+          deviceId: "device-new",
+        }),
+      }),
+      runtimeEnv,
+      runtimeContext,
+    );
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.email, email);
+    assert.equal(body.needsPassword, true);
+    assert.equal(typeof body.expiresAt, "number");
+    assert.match(response.headers.get("set-cookie") || "", /formbatch_customer_session=/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey) process.env.STRIPE_SECRET_KEY = previousKey;
+    else delete process.env.STRIPE_SECRET_KEY;
+    if (previousSecret) process.env.ADMIN_SESSION_SECRET = previousSecret;
+    else delete process.env.ADMIN_SESSION_SECRET;
+  }
+});
+
 test("account login rejects wrong password and missing entitlement", async () => {
   const previousSecret = process.env.ADMIN_SESSION_SECRET;
   process.env.ADMIN_SESSION_SECRET = "test-admin-secret";
