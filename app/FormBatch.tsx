@@ -51,6 +51,7 @@ import {
   detectStaticPdfFields,
   isCheckboxChecked,
   mergeSavedPlacements,
+  PLACEMENT_FONT_OPTIONS,
   withoutRemovedFields,
   type DetectedStaticField,
   type PlacementFontFamily,
@@ -394,9 +395,14 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       current.map((field) => {
         if (field.name !== name || !field.placement) return field;
         const placement = { ...field.placement };
-        if (style.fontFamily) placement.fontFamily = style.fontFamily;
+        if (style.fontFamily) {
+          const allowed = PLACEMENT_FONT_OPTIONS.some((option) => option.value === style.fontFamily);
+          if (allowed) placement.fontFamily = style.fontFamily;
+        }
         if (style.fontSize === "") delete placement.fontSize;
-        else if (typeof style.fontSize === "number") placement.fontSize = style.fontSize;
+        else if (typeof style.fontSize === "number" && Number.isFinite(style.fontSize)) {
+          placement.fontSize = style.fontSize;
+        }
         return { ...field, placement };
       }),
     );

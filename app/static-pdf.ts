@@ -95,6 +95,26 @@ function normalizeFonts(fonts: PDFFont | StaticFontSet): StaticFontSet {
   return { default: fonts as PDFFont };
 }
 
+function fontCanRender(font: PDFFont | undefined, text: string) {
+  if (!font) return false;
+  if (typeof font.widthOfTextAtSize !== "function") return true;
+  try {
+    font.widthOfTextAtSize(text, 10);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function measureTextWidth(font: PDFFont, text: string, size: number) {
+  if (typeof font.widthOfTextAtSize !== "function") return 0;
+  try {
+    return font.widthOfTextAtSize(text, size);
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
 export function applyStaticPdfFields(
   document: PDFDocument,
   fields: DetectedStaticField[],
@@ -104,11 +124,19 @@ export function applyStaticPdfFields(
 ) {
   const fontMap = normalizeFonts(fonts);
 
-  const resolveFont = (family?: PlacementFontFamily) => {
-    if (!family || family === "helvetica") return fontMap.helvetica || fontMap.default;
-    if (family === "times") return fontMap.times || fontMap.default;
-    if (family === "courier") return fontMap.courier || fontMap.default;
-    return fontMap.noto || fontMap.default;
+  const resolveFont = (family: PlacementFontFamily | undefined, text: string) => {
+    const preferred =
+      !family || family === "helvetica"
+        ? fontMap.helvetica || fontMap.default
+        : family === "times"
+          ? fontMap.times || fontMap.default
+          : family === "courier"
+            ? fontMap.courier || fontMap.default
+            : fontMap.noto || fontMap.default;
+    if (fontCanRender(preferred, text)) return preferred;
+    if (fontCanRender(fontMap.noto, text)) return fontMap.noto!;
+    if (fontCanRender(fontMap.default, text)) return fontMap.default;
+    return preferred;
   };
 
   for (const field of fields) {
@@ -116,12 +144,13 @@ export function applyStaticPdfFields(
     if (!rule) continue;
     const page = document.getPages()[field.placement.pageIndex];
     if (!page) continue;
-    const font = resolveFont(field.placement.fontFamily);
 
     if (field.type === "checkbox") {
       if (isCheckboxChecked(rule, row)) {
+        const mark = "X";
+        const font = resolveFont(field.placement.fontFamily, mark);
         const markSize = field.placement.fontSize || Math.min(9, field.placement.height);
-        page.drawText("X", {
+        page.drawText(mark, {
           x: field.placement.x,
           y: field.placement.y - 1,
           size: Math.min(markSize, field.placement.height),
@@ -134,13 +163,10 @@ export function applyStaticPdfFields(
     const value = row[rule] || "";
     if (!value) continue;
 
+    const font = resolveFont(field.placement.fontFamily, value);
     let fontSize = field.placement.fontSize ?? Math.min(9, field.placement.height - 1);
     const floor = Math.min(5, fontSize);
-    while (
-      fontSize > floor &&
-      typeof font.widthOfTextAtSize === "function" &&
-      font.widthOfTextAtSize(value, fontSize) > field.placement.width
-    ) {
+    while (fontSize > floor && measureTextWidth(font, value, fontSize) > field.placement.width) {
       fontSize -= 0.5;
     }
     page.drawText(value, {

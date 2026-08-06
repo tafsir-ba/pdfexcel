@@ -428,6 +428,46 @@ test("printed text fields honor chosen font size", () => {
   assert.equal(draws[0].options.font, font);
 });
 
+test("printed text falls back when the chosen font cannot encode the value", () => {
+  const draws = [];
+  const helvetica = {
+    widthOfTextAtSize: () => {
+      throw new Error("WinAnsi cannot encode");
+    },
+  };
+  const noto = {
+    widthOfTextAtSize: () => 40,
+  };
+  const document = {
+    getPages: () => [{ drawText: (text, options) => draws.push({ text, options }) }],
+  };
+  const field = {
+    name: "Full Name",
+    type: "text",
+    placement: {
+      pageIndex: 0,
+      x: 10,
+      y: 40,
+      width: 120,
+      height: 16,
+      fontFamily: "helvetica",
+      fontSize: 12,
+    },
+  };
+
+  applyStaticPdfFields(
+    document,
+    [field],
+    { "Full Name": "Name" },
+    { Name: "Nguyễn" },
+    { default: helvetica, helvetica, noto },
+  );
+  assert.equal(draws.length, 1);
+  assert.equal(draws[0].text, "Nguyễn");
+  assert.equal(draws[0].options.font, noto);
+  assert.equal(draws[0].options.size, 12);
+});
+
 test("mapping reconcile preserves Always-check and intentional blank values", () => {
   const fields = [{ name: "Approved" }, { name: "Full Name" }, { name: "Course" }];
   const headers = ["Full Name", "Approved", "Course"];
