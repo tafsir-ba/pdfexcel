@@ -29,12 +29,25 @@ export function placementsOverlap(a: StaticPlacement, b: StaticPlacement, gap = 
   );
 }
 
-export function clampPlacement(placement: StaticPlacement, page: Bounds): StaticPlacement {
-  const width = Math.min(Math.max(MIN_PLACEMENT_WIDTH, placement.width), page.width);
-  const height = Math.min(Math.max(MIN_PLACEMENT_HEIGHT, placement.height), page.height);
+/** Keep a placement on-page without enlarging small detected boxes (e.g. checkboxes). */
+export function clampToPage(placement: StaticPlacement, page: Bounds): StaticPlacement {
+  const width = Math.min(Math.max(1, placement.width), page.width);
+  const height = Math.min(Math.max(1, placement.height), page.height);
   const x = Math.min(Math.max(0, placement.x), Math.max(0, page.width - width));
   const y = Math.min(Math.max(0, placement.y), Math.max(0, page.height - height));
   return { ...placement, x, y, width, height };
+}
+
+/** Interactive minimum size, then page clamp. */
+export function clampPlacement(placement: StaticPlacement, page: Bounds): StaticPlacement {
+  return clampToPage(
+    {
+      ...placement,
+      width: Math.max(MIN_PLACEMENT_WIDTH, placement.width),
+      height: Math.max(MIN_PLACEMENT_HEIGHT, placement.height),
+    },
+    page,
+  );
 }
 
 function penetration(a: StaticPlacement, b: StaticPlacement) {
@@ -52,7 +65,7 @@ export function separateFromOthers(
   others: StaticPlacement[],
   page: Bounds,
 ): StaticPlacement {
-  let next = clampPlacement(candidate, page);
+  let next = clampToPage(candidate, page);
   for (let pass = 0; pass < 8; pass += 1) {
     let hit: StaticPlacement | null = null;
     for (const other of others) {
@@ -66,7 +79,7 @@ export function separateFromOthers(
     const depth = penetration(next, hit);
     if (depth.x <= depth.y) {
       const moveRight = next.x + next.width / 2 >= hit.x + hit.width / 2;
-      next = clampPlacement(
+      next = clampToPage(
         {
           ...next,
           x: moveRight ? hit.x + hit.width + GAP : hit.x - next.width - GAP,
@@ -75,7 +88,7 @@ export function separateFromOthers(
       );
     } else {
       const moveUp = next.y + next.height / 2 >= hit.y + hit.height / 2;
-      next = clampPlacement(
+      next = clampToPage(
         {
           ...next,
           y: moveUp ? hit.y + hit.height + GAP : hit.y - next.height - GAP,
@@ -94,7 +107,7 @@ export function movePlacementWithoutOverlap(
   others: StaticPlacement[],
   page: Bounds,
 ): StaticPlacement {
-  const proposed = clampPlacement(
+  const proposed = clampToPage(
     {
       ...start,
       x: start.x + dx,
@@ -116,18 +129,20 @@ export function resizePlacementWithoutOverlap(
   let next = { ...start };
 
   if (edge === "e") {
-    next.width = start.width + dx;
+    next.width = Math.max(MIN_PLACEMENT_WIDTH, start.width + dx);
   } else if (edge === "w") {
-    next.x = start.x + dx;
-    next.width = start.width - dx;
+    const width = Math.max(MIN_PLACEMENT_WIDTH, start.width - dx);
+    next.x = start.x + start.width - width;
+    next.width = width;
   } else if (edge === "n") {
-    next.height = start.height + dy;
+    next.height = Math.max(MIN_PLACEMENT_HEIGHT, start.height + dy);
   } else if (edge === "s") {
-    next.y = start.y + dy;
-    next.height = start.height - dy;
+    const height = Math.max(MIN_PLACEMENT_HEIGHT, start.height - dy);
+    next.y = start.y + start.height - height;
+    next.height = height;
   }
 
-  next = clampPlacement(next, page);
+  next = clampToPage(next, page);
 
   // If still overlapping after clamp, shrink from the active edge until clear.
   for (let pass = 0; pass < 24; pass += 1) {
@@ -139,15 +154,15 @@ export function resizePlacementWithoutOverlap(
     } else if (edge === "w") {
       const right = next.x + next.width;
       next.x = Math.min(right - MIN_PLACEMENT_WIDTH, blocker.x + blocker.width + GAP);
-      next.width = right - next.x;
+      next.width = Math.max(MIN_PLACEMENT_WIDTH, right - next.x);
     } else if (edge === "n") {
       next.height = Math.max(MIN_PLACEMENT_HEIGHT, blocker.y - GAP - next.y);
     } else {
       const top = next.y + next.height;
       next.y = Math.min(top - MIN_PLACEMENT_HEIGHT, blocker.y + blocker.height + GAP);
-      next.height = top - next.y;
+      next.height = Math.max(MIN_PLACEMENT_HEIGHT, top - next.y);
     }
-    next = clampPlacement(next, page);
+    next = clampToPage(next, page);
   }
 
   return separateFromOthers(next, others, page);
@@ -160,7 +175,7 @@ export function resolveFieldOverlaps<T extends { name: string; placement: Static
 ): T[] {
   const next = fields.map((field) => ({
     ...field,
-    placement: clampPlacement(field.placement, page),
+    placement: clampToPage(field.placement, page),
   }));
 
   next.sort(
@@ -192,17 +207,14 @@ export function findOpenPlacement(
   const startX = preferred?.x ?? Math.max(24, page.width * 0.12);
   const startY = preferred?.y ?? Math.max(40, page.height * 0.55);
 
-  const seed = clampPlacement(
-    { pageIndex, x: startX, y: startY, width, height },
-    page,
-  );
+  const seed = clampToPage({ pageIndex, x: startX, y: startY, width, height }, page);
   const samePage = occupied.filter((placement) => placement.pageIndex === pageIndex);
   if (!samePage.some((placement) => placementsOverlap(seed, placement))) return seed;
 
   const stepY = height + 8;
   for (let row = 0; row < 40; row += 1) {
     const y = Math.max(8, startY - row * stepY);
-    const candidate = clampPlacement({ ...seed, y }, page);
+    const candidate = clampToPage({ ...seed, y }, page);
     if (!samePage.some((placement) => placementsOverlap(candidate, placement))) {
       return candidate;
     }

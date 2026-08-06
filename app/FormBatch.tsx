@@ -387,24 +387,26 @@ export function FormBatch() {
           const removed = pendingRemovedRef.current;
           pendingPlacementsRef.current = null;
           pendingRemovedRef.current = null;
-          const pdfDoc = await PDFDocument.load(bytes);
+          const merged = withoutRemovedFields(
+            mergeSavedPlacements(staticFields, restored),
+            removed,
+          );
           const separated: DetectedStaticField[] = [];
-          for (let pageIndex = 0; pageIndex < pdfDoc.getPageCount(); pageIndex += 1) {
-            const size = pdfDoc.getPage(pageIndex).getSize();
-            const onPage = staticFields.filter((field) => field.placement.pageIndex === pageIndex);
+          for (let pageIndex = 0; pageIndex < document.getPageCount(); pageIndex += 1) {
+            const size = document.getPage(pageIndex).getSize();
+            const onPage = merged.filter((field) => field.placement.pageIndex === pageIndex);
             separated.push(
               ...resolveFieldOverlaps(onPage, { width: size.width, height: size.height }),
             );
           }
-          const kept = withoutRemovedFields(mergeSavedPlacements(separated, restored), removed);
           if (removed) setRemovedFieldNames(removed);
-          setFields(kept);
+          setFields(separated);
           setNotice(
             restored || removed?.length
-              ? `Printed form restored. ${kept.length} writing areas ready${
+              ? `Printed form restored. ${separated.length} writing areas ready${
                   removed?.length ? ` (${removed.length} removed earlier)` : ""
                 }.`
-              : `Printed form detected. ${kept.length} writing areas found (dotted lines, underscores, and ruled lines). Match them on the preview — names auto-map when labels are similar.`,
+              : `Printed form detected. ${separated.length} writing areas found (dotted lines, underscores, and ruled lines). Match them on the preview — names auto-map when labels are similar.`,
           );
         } else {
           pendingPlacementsRef.current = null;

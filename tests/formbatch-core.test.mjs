@@ -440,6 +440,7 @@ test("withoutRemovedFields drops previewer-deleted writing areas", () => {
 
 test("placement geometry separates overlaps and supports non-overlapping resize", async () => {
   const {
+    clampToPage,
     findOpenPlacement,
     movePlacementWithoutOverlap,
     placementsOverlap,
@@ -471,4 +472,33 @@ test("placement geometry separates overlaps and supports non-overlapping resize"
   const open = findOpenPlacement(0, page, [a, separated[1].placement]);
   assert.equal(placementsOverlap(open, a), false);
   assert.equal(placementsOverlap(open, separated[1].placement), false);
+
+  const checkbox = { pageIndex: 0, x: 50, y: 100, width: 8, height: 8 };
+  const neighbor = { pageIndex: 0, x: 70, y: 100, width: 100, height: 11 };
+  assert.equal(placementsOverlap(checkbox, neighbor), false);
+  assert.deepEqual(clampToPage(checkbox, page), checkbox);
+  const resolvedSmall = resolveFieldOverlaps(
+    [
+      { name: "Cb", placement: checkbox },
+      { name: "Nom", placement: neighbor },
+    ],
+    page,
+  );
+  assert.equal(resolvedSmall.find((field) => field.name === "Cb")?.placement.width, 8);
+  assert.equal(
+    placementsOverlap(resolvedSmall[0].placement, resolvedSmall[1].placement),
+    false,
+  );
+
+  const restoredOverlap = resolveFieldOverlaps(
+    [
+      { name: "A", placement: a },
+      { name: "B", placement: b },
+    ],
+    page,
+  );
+  assert.equal(
+    placementsOverlap(restoredOverlap[0].placement, restoredOverlap[1].placement),
+    false,
+  );
 });
