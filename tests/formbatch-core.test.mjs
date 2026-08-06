@@ -281,6 +281,22 @@ test("overlapping text and vector writing lines dedupe to one field", async () =
   assert.deepEqual(names.filter((name) => name.startsWith("Email")), ["Email"]);
 });
 
+test("inline dotted fill placement starts after the label, not over it", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([612, 300]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  const text = "NOM : ........................................";
+  page.drawText(text, { x: 54, y: 180, size: 11, font });
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const fields = await detectStaticPdfFields(buffer);
+  const nom = fields.find((field) => field.name === "NOM");
+  assert.ok(nom, `fields were ${fields.map((field) => field.name).join(", ")}`);
+  // Label "NOM : " is wider than a raw character ratio predicts; fill must clear it.
+  assert.ok(nom.placement.x > 90, `expected fill x past label, got ${nom.placement.x}`);
+});
+
 test("Fait à / le dual dotted blanks become two labelled fields", async () => {
   const document = await PDFDocument.create();
   const page = document.addPage([612, 400]);
@@ -296,7 +312,10 @@ test("Fait à / le dual dotted blanks become two labelled fields", async () => {
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   const names = (await detectStaticPdfFields(buffer)).map((field) => field.name);
   assert.ok(names.includes("Fait à"), `got ${names.join(", ")}`);
-  assert.ok(names.includes("le") || names.includes("le (2)") || names.some((n) => /^le/i.test(n)), `got ${names.join(", ")}`);
+  assert.ok(
+    names.includes("Date") || names.includes("le") || names.some((name) => /^le/i.test(name)),
+    `got ${names.join(", ")}`,
+  );
   assert.equal(names.some((name) => name.includes("....")), false);
 });
 

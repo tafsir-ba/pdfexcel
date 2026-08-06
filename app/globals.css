@@ -311,7 +311,18 @@ h1, h2, h3, p { margin-top: 0; }
 .mapping-list { margin-top: 16px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
 .mapping-row { min-height: 58px; display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--soft-line); }
 .mapping-row:last-child { border-bottom: 0; }
+.mapping-row.selected { background: rgba(24, 92, 68, 0.06); }
 .mapping-row > svg { color: #8a948e; justify-self: center; }
+.placement-preview { margin: 0 0 22px; padding: 16px; border: 1px solid var(--soft-line); border-radius: 14px; background: #f7f8f6; }
+.placement-preview-header h4 { margin: 0 0 4px; font-size: 16px; }
+.placement-preview-header p { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.placement-preview-error { margin: 0; color: #9b1c1c; font-size: 13px; }
+.placement-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; overflow: auto; border-radius: 10px; box-shadow: 0 10px 30px rgba(20, 35, 28, 0.12); background: #fff; }
+.placement-canvas { display: block; max-width: 100%; height: auto; }
+.placement-box { position: absolute; border: 1.5px solid rgba(24, 92, 68, 0.7); background: rgba(24, 92, 68, 0.12); color: #143528; border-radius: 4px; padding: 0 4px; margin: 0; cursor: grab; overflow: hidden; text-align: left; touch-action: none; }
+.placement-box.active { border-color: #0f6b45; background: rgba(15, 107, 69, 0.2); box-shadow: 0 0 0 2px rgba(15, 107, 69, 0.2); z-index: 2; }
+.placement-box:active { cursor: grabbing; }
+.placement-box-label { display: block; font-size: 11px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .field-name { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .field-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .field-type { flex: 0 0 auto; padding: 4px 6px; border-radius: 4px; color: var(--green-dark); background: var(--green-soft); font-size: 9px; font-weight: 800; text-transform: uppercase; }

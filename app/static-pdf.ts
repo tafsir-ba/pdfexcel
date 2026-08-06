@@ -108,6 +108,30 @@ function fillRatio(text: string) {
   return fills / compact.length;
 }
 
+function estimatePrefixWidth(fullText: string, prefixLength: number, totalWidth: number) {
+  if (prefixLength <= 0) return 0;
+  if (prefixLength >= fullText.length) return totalWidth;
+
+  // Dots/underscores are much narrower than letters, so a raw character ratio
+  // places fill text too far left (over the label). Weight fill glyphs lighter.
+  const weightOf = (character: string) => {
+    if (/[._\-·…‧∙＿]/.test(character)) return 0.28;
+    if (character === " ") return 0.33;
+    if (/[:：,;]/.test(character)) return 0.4;
+    return 1;
+  };
+
+  let prefixWeight = 0;
+  let totalWeight = 0;
+  for (let index = 0; index < fullText.length; index += 1) {
+    const weight = weightOf(fullText[index]);
+    totalWeight += weight;
+    if (index < prefixLength) prefixWeight += weight;
+  }
+  if (totalWeight <= 0) return totalWidth * (prefixLength / fullText.length);
+  return totalWidth * (prefixWeight / totalWeight);
+}
+
 function isMostlyFillText(text: string) {
   const compact = text.replace(/\s+/g, "");
   return compact.length >= 6 && fillRatio(text) >= 0.7;
@@ -263,14 +287,20 @@ function collectTextFillLines(textItems: TextItem[]) {
       }
 
       const previousEnd = runIndex === 0 ? 0 : runs[runIndex - 1].end;
-      const before = text.slice(previousEnd, run.start);
-      const label = cleanLabel(before.replace(/[,;]\s*$/g, ""));
-      const startRatio = run.start / Math.max(text.length, 1);
-      const endRatio = run.end / Math.max(text.length, 1);
+      let label = cleanLabel(text.slice(previousEnd, run.start).replace(/[,;]\s*$/g, ""));
+      if (
+        /^le$/i.test(label) &&
+        runIndex > 0 &&
+        /fait\s*à/i.test(cleanLabel(text.slice(0, runs[0].start)))
+      ) {
+        label = "Date";
+      }
+      const x1 = item.x + estimatePrefixWidth(text, run.start, item.width);
+      const x2 = item.x + estimatePrefixWidth(text, run.end, item.width);
       lines.push({
-        x1: item.x + item.width * startRatio,
+        x1,
         y: item.y,
-        x2: item.x + item.width * endRatio,
+        x2: Math.max(x1 + 20, x2),
         source: "text",
         inlineLabel: label || undefined,
       });
@@ -459,7 +489,8 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
         placement: {
           pageIndex,
           x: line.x1 + 2,
-          y: line.y + (line.source === "text" ? 0 : 2),
+          // Sit slightly above the rule/dots so values don't collide with the guide line.
+          y: line.y + (line.source === "text" ? 1.5 : 2.5),
           width: Math.max(20, line.x2 - line.x1 - 4),
           height: 11,
         },

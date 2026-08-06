@@ -39,6 +39,7 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
 import unicodeFontDataUrl from "./assets/NotoSans-Regular.ttf?inline";
 import { decodeCsvBytes } from "./csv";
 import { createDemoFiles } from "./demo-files";
+import { PlacementPreview } from "./PlacementPreview";
 import {
   applyStaticPdfFields,
   CHECKBOX_ALWAYS,
@@ -228,6 +229,7 @@ export function FormBatch() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
+  const [selectedField, setSelectedField] = useState<string | null>(null);
 
   const supportedFields = useMemo(
     () => fields.filter((field) => field.type !== "unsupported"),
@@ -238,6 +240,23 @@ export function FormBatch() {
     [mapping, supportedFields],
   );
   const isReady = Boolean(pdfFile && csvFile && supportedFields.length && rows.length && mappedCount);
+  const hasPrintedFields = supportedFields.some((field) => field.placement);
+  const previewSamples = useMemo(() => {
+    const row = rows[0] || {};
+    return Object.fromEntries(
+      supportedFields.map((field) => {
+        const rule = mapping[field.name];
+        if (!rule || rule === CHECKBOX_ALWAYS) return [field.name, field.name];
+        return [field.name, row[rule] || field.name];
+      }),
+    );
+  }, [mapping, rows, supportedFields]);
+
+  const movePrintedField = (name: string, placement: StaticPlacement) => {
+    setFields((current) =>
+      current.map((field) => (field.name === name ? { ...field, placement } : field)),
+    );
+  };
 
   useEffect(() => {
     const restoreStoredAccess = async () => {
@@ -698,9 +717,23 @@ export function FormBatch() {
                 </div>
                 <span className="mapping-count">{mappedCount}/{supportedFields.length} configured</span>
               </div>
+              {pdfFile && hasPrintedFields && (
+                <PlacementPreview
+                  pdfFile={pdfFile}
+                  fields={supportedFields}
+                  selectedField={selectedField}
+                  sampleValues={previewSamples}
+                  onSelectField={setSelectedField}
+                  onMoveField={movePrintedField}
+                />
+              )}
               <div className="mapping-list">
                 {supportedFields.map((field) => (
-                  <div className="mapping-row" key={field.name}>
+                  <div
+                    className={`mapping-row ${selectedField === field.name ? "selected" : ""}`}
+                    key={field.name}
+                    onClick={() => setSelectedField(field.name)}
+                  >
                     <div className="field-name">
                       <span className={`field-type ${field.type}`}>{field.type}</span>
                       <strong>{field.name}</strong>
