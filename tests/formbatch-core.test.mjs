@@ -501,6 +501,41 @@ test("printed text fields honor chosen font size", () => {
   assert.equal(draws[0].options.font, font);
 });
 
+test("printed text fields honor bold and alignment", () => {
+  const draws = [];
+  const regular = { widthOfTextAtSize: (text, size) => text.length * size * 0.5 };
+  const bold = { widthOfTextAtSize: (text, size) => text.length * size * 0.55 };
+  const document = {
+    getPages: () => [{ drawText: (text, options) => draws.push({ text, options }) }],
+  };
+  const field = {
+    name: "Full Name",
+    type: "text",
+    placement: {
+      pageIndex: 0,
+      x: 10,
+      y: 40,
+      width: 200,
+      height: 18,
+      fontSize: 12,
+      fontFamily: "helvetica",
+      bold: true,
+      align: "center",
+    },
+  };
+
+  applyStaticPdfFields(
+    document,
+    [field],
+    { "Full Name": "Name" },
+    { Name: "Ada" },
+    { default: regular, helvetica: regular, helveticaBold: bold },
+  );
+  assert.equal(draws.length, 1);
+  assert.equal(draws[0].options.font, bold);
+  assert.ok(draws[0].options.x > 10, "centered text should shift right of the box origin");
+});
+
 test("printed text falls back when the chosen font cannot encode the value", () => {
   const draws = [];
   const helvetica = {

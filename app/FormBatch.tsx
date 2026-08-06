@@ -402,7 +402,12 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
 
   const stylePrintedField = (
     name: string,
-    style: { fontFamily?: PlacementFontFamily; fontSize?: number | "" },
+    style: {
+      fontFamily?: PlacementFontFamily;
+      fontSize?: number | "";
+      bold?: boolean;
+      align?: "left" | "center" | "right";
+    },
   ) => {
     setFields((current) =>
       current.map((field) => {
@@ -416,9 +421,37 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         else if (typeof style.fontSize === "number" && Number.isFinite(style.fontSize)) {
           placement.fontSize = style.fontSize;
         }
+        if (typeof style.bold === "boolean") {
+          if (style.bold) placement.bold = true;
+          else delete placement.bold;
+        }
+        if (style.align === "left" || style.align === "center" || style.align === "right") {
+          if (style.align === "left") delete placement.align;
+          else placement.align = style.align;
+        }
         return { ...field, placement };
       }),
     );
+  };
+
+  const renamePrintedField = (oldName: string, nextName: string) => {
+    const cleaned = nextName.trim().slice(0, 80);
+    if (!cleaned || cleaned === oldName) return;
+    if (fields.some((field) => field.name === cleaned)) {
+      setError(`A field named “${cleaned}” already exists.`);
+      return;
+    }
+    setFields((current) =>
+      current.map((field) => (field.name === oldName ? { ...field, name: cleaned } : field)),
+    );
+    setMapping((current) => {
+      const next = { ...current };
+      next[cleaned] = current[oldName] || "";
+      delete next[oldName];
+      return next;
+    });
+    setSelectedField(cleaned);
+    setRemovedFieldNames((current) => current.filter((entry) => entry !== cleaned));
   };
 
   const removePrintedField = (name: string) => {
@@ -432,7 +465,11 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     setSelectedField((current) => (current === name ? null : current));
   };
 
-  const addPrintedField = (pageIndex: number, size: { width: number; height: number }) => {
+  const addPrintedField = (
+    pageIndex: number,
+    size: { width: number; height: number },
+    at?: { x: number; y: number },
+  ) => {
     const used = new Set(fields.map((field) => field.name));
     let index = 1;
     let name = `Field ${index}`;
@@ -440,17 +477,85 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       index += 1;
       name = `Field ${index}`;
     }
+    const width = Math.min(220, Math.max(120, size.width * 0.38));
+    const height = 28;
+    const preferred = at
+      ? {
+          x: Math.max(8, at.x - width / 2),
+          y: Math.max(8, at.y - height / 2),
+          width,
+          height,
+          fontFamily: "helvetica" as const,
+          fontSize: 12,
+        }
+      : { width, height, fontFamily: "helvetica" as const, fontSize: 12 };
     const placement = findOpenPlacement(
       pageIndex,
       size,
       fields
         .filter((field): field is PdfField & { placement: StaticPlacement } => Boolean(field.placement))
         .map((field) => field.placement),
+      preferred,
     );
-    setFields((current) => [...current, { name, type: "text", placement }]);
+    setFields((current) => [
+      ...current,
+      {
+        name,
+        type: "text",
+        placement: {
+          ...placement,
+          fontFamily: "helvetica",
+          fontSize: 12,
+        },
+      },
+    ]);
     setMapping((current) => ({ ...current, [name]: "" }));
     setSelectedField(name);
     setRemovedFieldNames((current) => current.filter((entry) => entry !== name));
+  };
+
+  const duplicatePrintedField = (name: string, pageSize: { width: number; height: number }) => {
+    const source = fields.find((field) => field.name === name);
+    if (!source?.placement) return;
+    const sourcePlacement = source.placement;
+    const used = new Set(fields.map((field) => field.name));
+    let index = 1;
+    let nextName = `${source.name} copy`;
+    while (used.has(nextName)) {
+      index += 1;
+      nextName = `${source.name} copy ${index}`;
+    }
+    const placement = findOpenPlacement(
+      sourcePlacement.pageIndex,
+      pageSize,
+      fields
+        .filter((field): field is PdfField & { placement: StaticPlacement } => Boolean(field.placement))
+        .map((field) => field.placement),
+      {
+        ...sourcePlacement,
+        x: sourcePlacement.x + 16,
+        y: Math.max(8, sourcePlacement.y - 16),
+        width: sourcePlacement.width,
+        height: sourcePlacement.height,
+      },
+    );
+    setFields((current) => [
+      ...current,
+      {
+        name: nextName,
+        type: source.type,
+        placement: {
+          ...sourcePlacement,
+          ...placement,
+          fontFamily: sourcePlacement.fontFamily,
+          fontSize: sourcePlacement.fontSize,
+          bold: sourcePlacement.bold,
+          align: sourcePlacement.align,
+        },
+      },
+    ]);
+    setMapping((current) => ({ ...current, [nextName]: current[name] || "" }));
+    setSelectedField(nextName);
   };
 
   const grantLocalAccess = (expiresAt: number, sessionId?: string) => {
@@ -973,7 +1078,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                 }.`
               : separated.length
                 ? `Printed form detected. ${separated.length} writing areas found (dotted lines, underscores, and ruled lines). Match them on the preview — names auto-map when labels are similar.`
-                : "No fields detected automatically. The PDF is ready — use Add field on the preview to place writing areas, then map them to your spreadsheet.",
+                : "No fields detected automatically. The PDF is ready — click Add field, then click the PDF where text should appear.",
           );
         } else {
           pendingPlacementsRef.current = null;
@@ -1191,16 +1296,22 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         }
         if (unicodeFont) document.registerFontkit(fontkit);
         const helvetica = await document.embedFont(StandardFonts.Helvetica);
+        const helveticaBold = await document.embedFont(StandardFonts.HelveticaBold);
         const times = await document.embedFont(StandardFonts.TimesRoman);
+        const timesBold = await document.embedFont(StandardFonts.TimesRomanBold);
         const courier = await document.embedFont(StandardFonts.Courier);
+        const courierBold = await document.embedFont(StandardFonts.CourierBold);
         const noto = unicodeFont
           ? await document.embedFont(unicodeFont, { subset: true })
           : undefined;
         const fonts = {
           default: noto || helvetica,
           helvetica,
+          helveticaBold,
           times,
+          timesBold,
           courier,
+          courierBold,
           noto,
         };
         if (acroFields.length) {
@@ -1773,20 +1884,22 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                   onSelectField={setSelectedField}
                   onMoveField={movePrintedField}
                   onStyleField={stylePrintedField}
+                  onRenameField={renamePrintedField}
                   onMapField={mapPrintedField}
                   onRemoveField={removePrintedField}
                   onAddField={addPrintedField}
+                  onDuplicateField={duplicatePrintedField}
                 />
               )}
               {!headers.length ? (
                 <p className="placement-preview-note">
                   {supportedFields.length
                     ? "Add a CSV next to map these writing areas to spreadsheet columns."
-                    : "Use Add field in the preview toolbar to place writing areas on this PDF, then add a CSV to map columns."}
+                    : "Click Add field, then click the PDF where the text should appear. Add a CSV afterward to map columns."}
                 </p>
               ) : supportedFields.length === 0 ? (
                 <p className="placement-preview-note">
-                  No writing areas yet. Press <strong>Add field</strong> in the preview toolbar, drag each box into place, then map it to a CSV column.
+                  No writing areas yet. Click <strong>Add field</strong>, then click the PDF where the text should appear.
                 </p>
               ) : (
               <div className={`mapping-list ${showPrintedPreview ? "mapping-list-dense" : ""}`}>

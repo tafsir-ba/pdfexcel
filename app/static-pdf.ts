@@ -18,6 +18,7 @@ async function configurePdfJsWorker() {
 }
 
 export type PlacementFontFamily = "helvetica" | "times" | "courier" | "noto";
+export type PlacementAlign = "left" | "center" | "right";
 
 export type StaticPlacement = {
   pageIndex: number;
@@ -29,16 +30,26 @@ export type StaticPlacement = {
   fontSize?: number;
   /** Optional typeface for printed-form fill text. */
   fontFamily?: PlacementFontFamily;
+  /** Optional bold weight when a bold face is available for the chosen family. */
+  bold?: boolean;
+  /** Horizontal text alignment inside the writing box. */
+  align?: PlacementAlign;
 };
 
 export const PLACEMENT_FONT_OPTIONS: { value: PlacementFontFamily; label: string }[] = [
   { value: "helvetica", label: "Helvetica" },
-  { value: "times", label: "Times" },
+  { value: "times", label: "Times Roman" },
   { value: "courier", label: "Courier" },
   { value: "noto", label: "Noto Sans" },
 ];
 
-export const PLACEMENT_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18] as const;
+export const PLACEMENT_FONT_SIZES = [8, 10, 12, 14, 16, 18, 24, 32] as const;
+
+export const PLACEMENT_ALIGN_OPTIONS: { value: PlacementAlign; label: string }[] = [
+  { value: "left", label: "Left" },
+  { value: "center", label: "Center" },
+  { value: "right", label: "Right" },
+];
 
 export type DetectedStaticField = {
   name: string;
@@ -83,8 +94,11 @@ export function withoutRemovedFields<T extends { name: string }>(
 export type StaticFontSet = {
   default: PDFFont;
   helvetica?: PDFFont;
+  helveticaBold?: PDFFont;
   times?: PDFFont;
+  timesBold?: PDFFont;
   courier?: PDFFont;
+  courierBold?: PDFFont;
   noto?: PDFFont;
 };
 
@@ -124,14 +138,19 @@ export function applyStaticPdfFields(
 ) {
   const fontMap = normalizeFonts(fonts);
 
-  const resolveFont = (family: PlacementFontFamily | undefined, text: string) => {
+  const resolveFont = (
+    family: PlacementFontFamily | undefined,
+    text: string,
+    bold?: boolean,
+  ) => {
+    const useBold = Boolean(bold);
     const preferred =
       !family || family === "helvetica"
-        ? fontMap.helvetica || fontMap.default
+        ? (useBold ? fontMap.helveticaBold : undefined) || fontMap.helvetica || fontMap.default
         : family === "times"
-          ? fontMap.times || fontMap.default
+          ? (useBold ? fontMap.timesBold : undefined) || fontMap.times || fontMap.default
           : family === "courier"
-            ? fontMap.courier || fontMap.default
+            ? (useBold ? fontMap.courierBold : undefined) || fontMap.courier || fontMap.default
             : fontMap.noto || fontMap.default;
     if (fontCanRender(preferred, text)) return preferred;
     if (fontCanRender(fontMap.noto, text)) return fontMap.noto!;
@@ -148,7 +167,7 @@ export function applyStaticPdfFields(
     if (field.type === "checkbox") {
       if (isCheckboxChecked(rule, row)) {
         const mark = "X";
-        const font = resolveFont(field.placement.fontFamily, mark);
+        const font = resolveFont(field.placement.fontFamily, mark, field.placement.bold);
         const markSize = field.placement.fontSize || Math.min(9, field.placement.height);
         page.drawText(mark, {
           x: field.placement.x,
@@ -163,14 +182,22 @@ export function applyStaticPdfFields(
     const value = row[rule] || "";
     if (!value) continue;
 
-    const font = resolveFont(field.placement.fontFamily, value);
-    let fontSize = field.placement.fontSize ?? Math.min(9, field.placement.height - 1);
+    const font = resolveFont(field.placement.fontFamily, value, field.placement.bold);
+    let fontSize = field.placement.fontSize ?? Math.min(12, Math.max(8, field.placement.height - 2));
     const floor = Math.min(5, fontSize);
     while (fontSize > floor && measureTextWidth(font, value, fontSize) > field.placement.width) {
       fontSize -= 0.5;
     }
+    const textWidth = measureTextWidth(font, value, fontSize);
+    const align = field.placement.align || "left";
+    const x =
+      align === "center"
+        ? field.placement.x + Math.max(0, (field.placement.width - textWidth) / 2)
+        : align === "right"
+          ? field.placement.x + Math.max(0, field.placement.width - textWidth)
+          : field.placement.x;
     page.drawText(value, {
-      x: field.placement.x,
+      x,
       y: field.placement.y,
       size: fontSize,
       font,

@@ -7,14 +7,32 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import {
   movePlacementInteractive,
   resizePlacementWithoutOverlap,
   separateFromOthers,
   type ResizeEdge,
 } from "./placement-geometry";
-import { CHECKBOX_ALWAYS, PLACEMENT_FONT_OPTIONS, PLACEMENT_FONT_SIZES, type PlacementFontFamily, type StaticPlacement } from "./static-pdf";
+import {
+  CHECKBOX_ALWAYS,
+  PLACEMENT_ALIGN_OPTIONS,
+  PLACEMENT_FONT_OPTIONS,
+  PLACEMENT_FONT_SIZES,
+  type PlacementAlign,
+  type PlacementFontFamily,
+  type StaticPlacement,
+} from "./static-pdf";
 
 type PreviewField = {
   name: string;
@@ -33,11 +51,25 @@ type PlacementPreviewProps = {
   onMoveField: (name: string, placement: StaticPlacement) => void;
   onStyleField: (
     name: string,
-    style: { fontFamily?: PlacementFontFamily; fontSize?: number | "" },
+    style: {
+      fontFamily?: PlacementFontFamily;
+      fontSize?: number | "";
+      bold?: boolean;
+      align?: PlacementAlign;
+    },
   ) => void;
+  onRenameField: (oldName: string, nextName: string) => void;
   onMapField: (name: string, value: string) => void;
   onRemoveField: (name: string) => void;
-  onAddField: (pageIndex: number, pageSize: { width: number; height: number }) => void;
+  onAddField: (
+    pageIndex: number,
+    pageSize: { width: number; height: number },
+    at?: { x: number; y: number },
+  ) => void;
+  onDuplicateField: (
+    name: string,
+    pageSize: { width: number; height: number },
+  ) => void;
 };
 
 type Interaction =
@@ -69,21 +101,27 @@ export function PlacementPreview({
   onSelectField,
   onMoveField,
   onStyleField,
+  onRenameField,
   onMapField,
   onRemoveField,
   onAddField,
+  onDuplicateField,
 }: PlacementPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const focusNameAfterAddRef = useRef(false);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [scale, setScale] = useState(1);
   const [pageCount, setPageCount] = useState(1);
   const [pageIndex, setPageIndex] = useState(0);
-  /** Only show overlays once canvas matches this page (avoids page-switch misalignment). */
   const [renderedPageIndex, setRenderedPageIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameDraftFor, setNameDraftFor] = useState<string | null>(null);
   const interactionRef = useRef<Interaction | null>(null);
-  /** Live drag/resize box — avoids parent re-render jumps and 1:1 cursor tracking. */
   const [livePlacement, setLivePlacement] = useState<StaticPlacement | null>(null);
   const [liveName, setLiveName] = useState<string | null>(null);
   const [snapGuides, setSnapGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
@@ -118,6 +156,20 @@ export function PlacementPreview({
     }
     return counts;
   }, [placedFields, pageCount]);
+
+  const selected = useMemo(
+    () => placedFields.find((field) => field.name === selectedField) || null,
+    [placedFields, selectedField],
+  );
+  const nameValue =
+    selected && nameDraftFor === selected.name ? nameDraft : selected?.name || "";
+
+  useEffect(() => {
+    if (!selectedField || !focusNameAfterAddRef.current) return;
+    focusNameAfterAddRef.current = false;
+    const timer = window.setTimeout(() => nameInputRef.current?.focus(), 40);
+    return () => window.clearTimeout(timer);
+  }, [selectedField]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,7 +214,6 @@ export function PlacementPreview({
         if (!context) return;
         canvas.width = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
-        // Explicit CSS pixel size prevents browser shrinking that desyncs overlays.
         canvas.style.width = `${canvas.width}px`;
         canvas.style.height = `${canvas.height}px`;
         await page.render({ canvasContext: context, viewport, canvas }).promise;
@@ -192,7 +243,6 @@ export function PlacementPreview({
     };
   }, [pdfFile, safePageIndex]);
 
-  /** Canvas geometry must match stored placement used by applyStaticPdfFields. */
   const toCanvas = (placement: StaticPlacement) => ({
     x: placement.x * scale,
     y: (pageSize.height - placement.y - placement.height) * scale,
@@ -207,9 +257,8 @@ export function PlacementPreview({
     event: ReactPointerEvent<HTMLElement>,
     field: PreviewField & { placement: StaticPlacement },
   ) => {
-    if ((event.target as HTMLElement).closest("select,button,label,option,.placement-handle,.placement-text-editor")) {
-      return;
-    }
+    if ((event.target as HTMLElement).closest(".placement-handle")) return;
+    if (placing) return;
     event.preventDefault();
     event.stopPropagation();
     onSelectField(field.name);
@@ -342,6 +391,92 @@ export function PlacementPreview({
     }
   };
 
+  const placeAtClientPoint = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !pageReady) return;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
+    if (canvasX < 0 || canvasY < 0 || canvasX > rect.width || canvasY > rect.height) return;
+    const pdfX = canvasX / scale;
+    const pdfYFromTop = canvasY / scale;
+    const height = 28;
+    const pdfY = pageSize.height - pdfYFromTop - height / 2;
+    setPlacing(false);
+    focusNameAfterAddRef.current = true;
+    onAddField(safePageIndex, pageSize, { x: pdfX, y: pdfY });
+  };
+
+  const commitName = () => {
+    if (!selected) return;
+    const next = nameValue.trim();
+    setNameDraftFor(null);
+    if (!next || next === selected.name) return;
+    onRenameField(selected.name, next);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+
+      if (event.key === "Escape") {
+        if (placing) {
+          setPlacing(false);
+          event.preventDefault();
+          return;
+        }
+        if (selectedField && !typing) {
+          onSelectField(null);
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (typing) return;
+
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedField) {
+        event.preventDefault();
+        onRemoveField(selectedField);
+        return;
+      }
+
+      if (!selected?.placement || !pageSize.height) return;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      const step = event.shiftKey ? 10 : 1;
+      let next = { ...selected.placement };
+      if (event.key === "ArrowLeft") next.x -= step;
+      if (event.key === "ArrowRight") next.x += step;
+      if (event.key === "ArrowUp") next.y += step;
+      if (event.key === "ArrowDown") next.y -= step;
+      const others = pageFields
+        .filter((field) => field.name !== selected.name)
+        .map((field) => field.placement);
+      next = separateFromOthers(next, others, pageSize);
+      onMoveField(selected.name, next);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    placing,
+    selected,
+    selectedField,
+    pageSize,
+    pageFields,
+    onSelectField,
+    onRemoveField,
+    onMoveField,
+  ]);
+
+  const toolbarDisabled = !selected;
+
   return (
     <div className="placement-preview">
       <div className="placement-preview-header">
@@ -349,8 +484,8 @@ export function PlacementPreview({
           <h4>Place fields on the PDF</h4>
           <p>
             {fields.length
-              ? "Drag for precise placement — edges soft-snap to nearby fields. Resize from the handles. Unmapped fields are highlighted in purple. Click a field to map it and set font size or typeface."
-              : "No writing areas were detected on this PDF. Press Add field in the toolbar above to create one, then drag it into place and map it to a CSV column."}
+              ? "Select a field to edit its mapping and text style. Drag fields on the PDF to position them, or click Add field to place a new one."
+              : "No fields yet. Click Add field, then click the PDF where the text should appear."}
           </p>
         </div>
         <div className="placement-preview-actions">
@@ -391,27 +526,213 @@ export function PlacementPreview({
               </button>
             </div>
           )}
-          <button
-            type="button"
-            className="placement-add-btn"
-            disabled={!pageReady}
-            onClick={() => {
-              if (!pageReady) return;
-              onAddField(safePageIndex, pageSize);
-            }}
-          >
-            <Plus size={15} />
-            Add field
-          </button>
         </div>
       </div>
+
+      <div
+        className={`placement-toolbar${toolbarDisabled ? " is-disabled" : ""}`}
+        role="toolbar"
+        aria-label="Field editor"
+      >
+        <label className="placement-toolbar-field placement-toolbar-name">
+          <span className="sr-only">Field name</span>
+          <input
+            ref={nameInputRef}
+            type="text"
+            placeholder="Field name"
+            value={toolbarDisabled ? "" : nameValue}
+            disabled={toolbarDisabled}
+            onChange={(event) => {
+              if (!selected) return;
+              setNameDraftFor(selected.name);
+              setNameDraft(event.target.value);
+            }}
+            onBlur={commitName}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitName();
+              }
+            }}
+          />
+        </label>
+
+        <label className="placement-toolbar-field">
+          <span className="sr-only">CSV column</span>
+          <select
+            value={selected ? mapping[selected.name] || "" : ""}
+            disabled={toolbarDisabled}
+            onChange={(event) => {
+              if (!selected) return;
+              onMapField(selected.name, event.target.value);
+            }}
+          >
+            {selected?.type === "checkbox" ? (
+              <>
+                <option value="">Unchecked</option>
+                <option value={CHECKBOX_ALWAYS}>Always check</option>
+                {headers.map((header) => (
+                  <option key={header} value={header}>
+                    When “{header}” is true
+                  </option>
+                ))}
+              </>
+            ) : (
+              <>
+                <option value="">Do not fill</option>
+                {headers.map((header) => (
+                  <option key={header} value={header}>
+                    {header}
+                  </option>
+                ))}
+              </>
+            )}
+          </select>
+        </label>
+
+        <label className="placement-toolbar-field">
+          <span className="sr-only">Font family</span>
+          <select
+            value={selected?.placement?.fontFamily || "helvetica"}
+            disabled={toolbarDisabled || selected?.type === "checkbox"}
+            onChange={(event) => {
+              if (!selected) return;
+              onStyleField(selected.name, {
+                fontFamily: event.target.value as PlacementFontFamily,
+              });
+            }}
+          >
+            {PLACEMENT_FONT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="placement-toolbar-field placement-toolbar-size">
+          <span className="sr-only">Font size</span>
+          <select
+            value={String(selected?.placement?.fontSize || "")}
+            disabled={toolbarDisabled || selected?.type === "checkbox"}
+            onChange={(event) => {
+              if (!selected) return;
+              const raw = event.target.value;
+              onStyleField(selected.name, { fontSize: raw ? Number(raw) : "" });
+            }}
+          >
+            <option value="">Auto</option>
+            {PLACEMENT_FONT_SIZES.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          className={`placement-toolbar-icon${selected?.placement?.bold ? " is-active" : ""}`}
+          disabled={toolbarDisabled || selected?.type === "checkbox"}
+          aria-pressed={Boolean(selected?.placement?.bold)}
+          title="Bold"
+          aria-label="Bold"
+          onClick={() => {
+            if (!selected) return;
+            onStyleField(selected.name, { bold: !selected.placement?.bold });
+          }}
+        >
+          <Bold size={15} />
+        </button>
+
+        <div className="placement-align-group" role="group" aria-label="Alignment">
+          {PLACEMENT_ALIGN_OPTIONS.map((option) => {
+            const Icon =
+              option.value === "left" ? AlignLeft : option.value === "center" ? AlignCenter : AlignRight;
+            const active = (selected?.placement?.align || "left") === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`placement-toolbar-icon${active ? " is-active" : ""}`}
+                disabled={toolbarDisabled || selected?.type === "checkbox"}
+                aria-pressed={active}
+                title={option.label}
+                aria-label={`Align ${option.label.toLowerCase()}`}
+                onClick={() => {
+                  if (!selected) return;
+                  onStyleField(selected.name, { align: option.value });
+                }}
+              >
+                <Icon size={15} />
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          className="placement-toolbar-icon"
+          disabled={toolbarDisabled}
+          title="Duplicate field"
+          aria-label="Duplicate field"
+          onClick={() => {
+            if (!selected || !pageReady) return;
+            onDuplicateField(selected.name, pageSize);
+          }}
+        >
+          <Copy size={15} />
+        </button>
+
+        <button
+          type="button"
+          className="placement-toolbar-icon is-danger"
+          disabled={toolbarDisabled}
+          title="Delete field"
+          aria-label="Delete field"
+          onClick={() => {
+            if (!selected) return;
+            onRemoveField(selected.name);
+          }}
+        >
+          <Trash2 size={15} />
+        </button>
+
+        <button
+          type="button"
+          className={`placement-add-btn${placing ? " is-active" : ""}`}
+          disabled={!pageReady}
+          aria-pressed={placing}
+          onClick={() => {
+            if (!pageReady) return;
+            setPlacing((current) => !current);
+            onSelectField(null);
+          }}
+        >
+          <Plus size={15} />
+          {placing ? "Click on PDF to place field" : "Add field"}
+        </button>
+      </div>
+
+      {placing ? (
+        <p className="placement-mode-hint" role="status">
+          Click anywhere on the PDF to place a new field. Press Escape to cancel.
+        </p>
+      ) : null}
+
       {error ? (
         <p className="placement-preview-error">{error}</p>
       ) : (
         <>
           <div
-            className="placement-stage"
+            ref={stageRef}
+            className={`placement-stage${placing ? " is-placing" : ""}`}
             onPointerDown={(event) => {
+              if (placing) {
+                event.preventDefault();
+                placeAtClientPoint(event.clientX, event.clientY);
+                return;
+              }
               if (event.target === event.currentTarget || event.target === canvasRef.current) {
                 onSelectField(null);
               }
@@ -441,24 +762,22 @@ export function PlacementPreview({
                 const box = toCanvas(placement);
                 const sample = sampleValues[field.name] || "";
                 const active = selectedField === field.name;
-                const expanded = active && !dragging;
                 const mapped = mapping[field.name] || "";
-                const chromeBelow = box.y < 72;
                 return (
                   <div
                     key={field.name}
                     className={`placement-anchor ${active ? "active" : ""} ${
-                      expanded ? "expanded" : "collapsed"
-                    } ${field.type} ${mapped ? "mapped" : "unmapped"} ${
-                      chromeBelow ? "chrome-below" : "chrome-above"
-                    } ${dragging && active ? "dragging" : ""}`}
+                      field.type
+                    } ${mapped ? "mapped" : "unmapped"} ${
+                      dragging && active ? "dragging" : ""
+                    }`}
                     style={{
                       left: box.x,
                       top: box.y,
                       width: box.width,
                       height: box.height,
                     }}
-                    title={`${field.name} — drag to move, edges to resize`}
+                    title={`${field.name}${mapped ? ` → ${mapped}` : " (unmapped)"}`}
                     onPointerDown={(event) => beginMove(event, field)}
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
@@ -466,7 +785,29 @@ export function PlacementPreview({
                     onClick={() => onSelectField(field.name)}
                   >
                     <span className="placement-fill-outline" aria-hidden="true" />
-                    <span className="placement-chip">{field.name}</span>
+                    <span className="placement-chip">
+                      {mapped ? field.name : "Unmapped"}
+                    </span>
+                    {sample && mapped && mapped !== CHECKBOX_ALWAYS ? (
+                      <span
+                        className="placement-box-sample"
+                        style={{
+                          fontFamily:
+                            placement.fontFamily === "times"
+                              ? "Times New Roman, Times, serif"
+                              : placement.fontFamily === "courier"
+                                ? "Courier New, Courier, monospace"
+                                : placement.fontFamily === "noto"
+                                  ? "Noto Sans, Arial, sans-serif"
+                                  : "Helvetica, Arial, sans-serif",
+                          fontSize: `${Math.max(9, Math.min(16, placement.fontSize || 12))}px`,
+                          fontWeight: placement.bold ? 700 : 400,
+                          textAlign: placement.align || "left",
+                        }}
+                      >
+                        {sample}
+                      </span>
+                    ) : null}
                     {active ? (
                       <>
                         <button
@@ -507,127 +848,6 @@ export function PlacementPreview({
                         />
                       </>
                     ) : null}
-                    {expanded ? (
-                      <div
-                        className="placement-chrome"
-                        style={{ width: Math.max(168, Math.min(260, box.width + 56)) }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                      >
-                        <div className="placement-box-toolbar">
-                          <span className="placement-box-name">{field.name}</span>
-                          <button
-                            type="button"
-                            className="placement-remove"
-                            title={`Remove “${field.name}”`}
-                            aria-label={`Remove ${field.name}`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onRemoveField(field.name);
-                            }}
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                        <label className="placement-map-wrap">
-                          <span className="sr-only">CSV column for {field.name}</span>
-                          {field.type === "checkbox" ? (
-                            <select
-                              value={mapped}
-                              onChange={(event) => onMapField(field.name, event.target.value)}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <option value="">Unchecked</option>
-                              <option value={CHECKBOX_ALWAYS}>Always check</option>
-                              {headers.map((header) => (
-                                <option key={header} value={header}>
-                                  When “{header}” is true
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <select
-                              value={mapped}
-                              onChange={(event) => onMapField(field.name, event.target.value)}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <option value="">Do not fill</option>
-                              {headers.map((header) => (
-                                <option key={header} value={header}>
-                                  {header}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </label>
-                        {field.type !== "checkbox" ? (
-                          <div
-                            className="placement-text-editor"
-                            role="group"
-                            aria-label={`Text style for ${field.name}`}
-                            onPointerDown={(event) => event.stopPropagation()}
-                          >
-                            <label className="placement-font-wrap">
-                              <span className="sr-only">Font for {field.name}</span>
-                              <select
-                                value={placement.fontFamily || "helvetica"}
-                                onChange={(event) =>
-                                  onStyleField(field.name, {
-                                    fontFamily: event.target.value as PlacementFontFamily,
-                                  })
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                {PLACEMENT_FONT_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="placement-size-wrap">
-                              <span className="sr-only">Font size for {field.name}</span>
-                              <select
-                                value={String(placement.fontSize || "")}
-                                onChange={(event) => {
-                                  const raw = event.target.value;
-                                  onStyleField(field.name, {
-                                    fontSize: raw ? Number(raw) : "",
-                                  });
-                                }}
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <option value="">Auto</option>
-                                {PLACEMENT_FONT_SIZES.map((size) => (
-                                  <option key={size} value={size}>
-                                    {size}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                        ) : null}
-                        {sample && mapped && mapped !== CHECKBOX_ALWAYS ? (
-                          <span
-                            className="placement-box-sample"
-                            style={{
-                              fontFamily:
-                                placement.fontFamily === "times"
-                                  ? "Times New Roman, Times, serif"
-                                  : placement.fontFamily === "courier"
-                                    ? "Courier New, Courier, monospace"
-                                    : placement.fontFamily === "noto"
-                                      ? "Noto Sans, Arial, sans-serif"
-                                      : "Helvetica, Arial, sans-serif",
-                              fontSize: `${Math.max(9, Math.min(14, placement.fontSize || 10))}px`,
-                            }}
-                          >
-                            {sample}
-                          </span>
-                        ) : !mapped ? (
-                          <span className="placement-box-unmapped">Not mapped — choose a column</span>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </div>
                 );
               })}
@@ -635,9 +855,9 @@ export function PlacementPreview({
           {!pageReady && !error && (
             <p className="placement-preview-note">Loading page {safePageIndex + 1}…</p>
           )}
-          {pageReady && pageFields.length === 0 && (
+          {pageReady && pageFields.length === 0 && !placing && (
             <p className="placement-preview-note">
-              No fields on page {safePageIndex + 1}. Use Add field to place one, or open another page.
+              No fields on page {safePageIndex + 1}. Click Add field, then click the PDF where the text should appear.
             </p>
           )}
         </>
