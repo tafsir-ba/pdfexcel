@@ -348,8 +348,9 @@ export function PlacementPreview({
         <div>
           <h4>Place fields on the PDF</h4>
           <p>
-            Drag for precise placement — edges soft-snap to nearby fields. Resize from the handles.
-            Unmapped fields are highlighted in purple. Click a field to map it and set font size or typeface.
+            {fields.length
+              ? "Drag for precise placement — edges soft-snap to nearby fields. Resize from the handles. Unmapped fields are highlighted in purple. Click a field to map it and set font size or typeface."
+              : "No writing areas were detected on this PDF. Press Add field in the toolbar above to create one, then drag it into place and map it to a CSV column."}
           </p>
         </div>
         <div className="placement-preview-actions">

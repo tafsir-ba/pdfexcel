@@ -347,6 +347,8 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   const [navScrolled, setNavScrolled] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [removedFieldNames, setRemovedFieldNames] = useState<string[]>([]);
+  /** True when the PDF has no AcroForm fields — show canvas preview and allow manual Add field. */
+  const [placementMode, setPlacementMode] = useState(false);
   const [livePricing, setLivePricing] = useState<LivePricing>(
     initialPricing || {
       amountCents: DEFAULT_PRICE_USD * 100,
@@ -376,7 +378,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   );
   const isReady = Boolean(pdfFile && csvFile && supportedFields.length && rows.length && mappedCount);
   const hasPrintedFields = supportedFields.some((field) => field.placement);
-  const showPrintedPreview = Boolean(pdfFile) && (hasPrintedFields || removedFieldNames.length > 0);
+  const showPrintedPreview = Boolean(pdfFile) && (placementMode || hasPrintedFields || removedFieldNames.length > 0);
   const previewSamples = useMemo(() => {
     const row = rows[0] || {};
     return Object.fromEntries(
@@ -651,7 +653,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
   };
 
   useEffect(() => {
-    if (!cloudSyncReady || !pdfFile || !csvFile || !supportedFields.length) return;
+    if (!cloudSyncReady || !pdfFile || !csvFile) return;
     if (skipCloudAutosaveRef.current) return;
     if (cloudAutosaveTimerRef.current) window.clearTimeout(cloudAutosaveTimerRef.current);
     cloudAutosaveTimerRef.current = window.setTimeout(() => {
@@ -945,11 +947,6 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         }));
         if (!nextFields.length) {
           const staticFields = await detectStaticPdfFields(bytes);
-          if (!staticFields.length) {
-            throw new Error(
-              "No fillable fields or blank writing lines could be detected in this PDF. Use a PDF with form fields or printed underlines/labels (including captions under the lines). Scanned image-only PDFs are not supported yet.",
-            );
-          }
           const restored = pendingPlacementsRef.current;
           const removed = pendingRemovedRef.current;
           pendingPlacementsRef.current = null;
@@ -967,30 +964,33 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
             );
           }
           if (removed) setRemovedFieldNames(removed);
+          setPlacementMode(true);
           setFields(separated);
           setNotice(
             restored || removed?.length
-              ? `Printed form restored. ${separated.length} writing areas ready${
+              ? `Printed form restored. ${separated.length} writing area${separated.length === 1 ? "" : "s"} ready${
                   removed?.length ? ` (${removed.length} removed earlier)` : ""
                 }.`
-              : `Printed form detected. ${separated.length} writing areas found (dotted lines, underscores, and ruled lines). Match them on the preview — names auto-map when labels are similar.`,
+              : separated.length
+                ? `Printed form detected. ${separated.length} writing areas found (dotted lines, underscores, and ruled lines). Match them on the preview — names auto-map when labels are similar.`
+                : "No fields detected automatically. The PDF is ready — use Add field on the preview to place writing areas, then map them to your spreadsheet.",
           );
         } else {
           pendingPlacementsRef.current = null;
           pendingRemovedRef.current = null;
           setRemovedFieldNames([]);
+          setPlacementMode(false);
           setFields(nextFields);
         }
       } catch (pdfError) {
         setFields([]);
+        setPlacementMode(false);
         setError(
-          pdfError instanceof Error && pdfError.message.includes("No fillable fields")
-            ? pdfError.message
-            : `The PDF could not be read${
-                pdfError instanceof Error && pdfError.message
-                  ? `: ${pdfError.message}`
-                  : ". Make sure it is a valid, unencrypted PDF."
-              }`,
+          `The PDF could not be read${
+            pdfError instanceof Error && pdfError.message
+              ? `: ${pdfError.message}`
+              : ". Make sure it is a valid, unencrypted PDF."
+          }`,
         );
       } finally {
         setBusy(null);
@@ -1067,6 +1067,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     pendingPlacementsRef.current = null;
     pendingRemovedRef.current = null;
     setRemovedFieldNames([]);
+    setPlacementMode(false);
     setPdfFile(file);
     setError("");
     setNotice("");
@@ -1340,6 +1341,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
     pendingPlacementsRef.current = null;
     pendingRemovedRef.current = null;
     setRemovedFieldNames([]);
+    setPlacementMode(false);
     setPdfFile(null);
     setCsvFile(null);
     setFields([]);
@@ -1701,7 +1703,11 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                 <strong>{pdfFile ? pdfFile.name : "PDF form template"}</strong>
                 <small>
                   {pdfFile
-                    ? `${supportedFields.length} ${fields.some((field) => field.placement) ? "writing areas" : "fields"} detected`
+                    ? placementMode
+                      ? supportedFields.length
+                        ? `${supportedFields.length} writing area${supportedFields.length === 1 ? "" : "s"} ready`
+                        : "No fields detected — use Add field on the preview"
+                      : `${supportedFields.length} field${supportedFields.length === 1 ? "" : "s"} detected`
                     : "Drop PDF here or choose a file"}
                 </small>
               </span>
@@ -1741,16 +1747,22 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
             </div>
           )}
 
-          {fields.length > 0 && headers.length > 0 && (
+          {(placementMode || fields.length > 0) && pdfFile && (
             <div className="mapping-section">
               <div className="section-title-row">
                 <div>
                   <span className="section-number">02</span>
                   <h3>{showPrintedPreview ? "Place fields & map columns" : "Match PDF fields to spreadsheet columns"}</h3>
                 </div>
-                <span className="mapping-count">{mappedCount}/{supportedFields.length} configured</span>
+                <span className="mapping-count">
+                  {headers.length
+                    ? `${mappedCount}/${supportedFields.length} configured`
+                    : supportedFields.length
+                      ? `${supportedFields.length} field${supportedFields.length === 1 ? "" : "s"} placed`
+                      : "Add fields on the preview"}
+                </span>
               </div>
-              {showPrintedPreview && pdfFile && (
+              {showPrintedPreview && (
                 <PlacementPreview
                   pdfFile={pdfFile}
                   fields={supportedFields}
@@ -1766,6 +1778,17 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                   onAddField={addPrintedField}
                 />
               )}
+              {!headers.length ? (
+                <p className="placement-preview-note">
+                  {supportedFields.length
+                    ? "Add a CSV next to map these writing areas to spreadsheet columns."
+                    : "Use Add field in the preview toolbar to place writing areas on this PDF, then add a CSV to map columns."}
+                </p>
+              ) : supportedFields.length === 0 ? (
+                <p className="placement-preview-note">
+                  No writing areas yet. Press <strong>Add field</strong> in the preview toolbar, drag each box into place, then map it to a CSV column.
+                </p>
+              ) : (
               <div className={`mapping-list ${showPrintedPreview ? "mapping-list-dense" : ""}`}>
                 {supportedFields.map((field) => (
                   <div
@@ -1856,7 +1879,9 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                   </div>
                 ))}
               </div>
+              )}
 
+              {headers.length > 0 && supportedFields.length > 0 ? (
               <div className="output-settings">
                 <label className="setting-block">
                   <span>Use filenames from</span>
@@ -1873,6 +1898,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
                   <span><strong>Lock completed fields</strong><small>Recommended for finished documents</small></span>
                 </label>
               </div>
+              ) : null}
             </div>
           )}
 

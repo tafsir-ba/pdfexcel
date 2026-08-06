@@ -106,6 +106,17 @@ test("custom font generation supports accented and Vietnamese names", async () =
   }
 });
 
+test("blank PDFs with no printed lines still return an empty field list", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([400, 500]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  page.drawText("Just a decorative cover page", { x: 80, y: 250, size: 14, font });
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const fields = await detectStaticPdfFields(buffer);
+  assert.deepEqual(fields, []);
+});
+
 test("diploma-style captions under writing lines become field names", async () => {
   const document = await PDFDocument.create();
   const page = document.addPage([792, 612]);
