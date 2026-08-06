@@ -19,8 +19,6 @@ export const CHECKBOX_ALWAYS = "__formbatch_always_checked__";
 const TRUE_CHECKBOX_VALUES = /^(1|true|yes|y|checked|x|oui)$/i;
 const FILL_CHAR_RE = /[._\-·…‧∙＿]/g;
 const FILL_RUN_RE = /([._\-·…‧∙＿])\1{5,}|[._\-·…‧∙＿]{6,}/;
-const LABEL_FILL_RE =
-  /^(.*?)(?:\s*[:：]\s*|\s+)([._\-·…‧∙＿ .]{6,})\s*$/u;
 
 export function isCheckboxChecked(
   rule: string,
@@ -88,8 +86,10 @@ type Line = {
 
 function cleanLabel(value: string) {
   return value
+    .replace(FILL_CHAR_RE, " ")
     .replace(/\s+/g, " ")
     .replace(/\s*[:;：]\s*$/, "")
+    .replace(/^[,;.\s]+|[,;.\s]+$/g, "")
     .trim()
     .slice(0, 110);
 }
@@ -119,9 +119,16 @@ function looksLikeTitleLabel(label: string) {
   const letters = cleaned.replace(/[^A-Za-zÀ-ÿ]/g, "");
   if (letters.length < 10) return false;
   const upper = letters.toUpperCase();
-  const lower = letters.toLowerCase();
   // ALL CAPS (or nearly) long headings are usually titles, not field labels.
-  return upper === letters || (upper !== lower && cleaned === cleaned.toUpperCase());
+  return upper === letters || cleaned === cleaned.toUpperCase();
+}
+
+function overlapRatio(left: Line, right: Line) {
+  const start = Math.max(left.x1, right.x1);
+  const end = Math.min(left.x2, right.x2);
+  const overlap = Math.max(0, end - start);
+  const shorter = Math.min(left.x2 - left.x1, right.x2 - right.x1);
+  return shorter > 0 ? overlap / shorter : 0;
 }
 
 function mergeLineSegments(lines: Line[]) {
@@ -155,6 +162,44 @@ function mergeLineSegments(lines: Line[]) {
   );
 }
 
+/** Collapse text+vector pairs that describe the same writing area. */
+function dedupeOverlappingLines(lines: Array<Line & { inlineLabel?: string }>) {
+  const sorted = [...lines].sort(
+    (left, right) => right.y - left.y || right.x2 - right.x1 - (left.x2 - left.x1),
+  );
+  const kept: Array<Line & { inlineLabel?: string }> = [];
+
+  for (const line of sorted) {
+    const twinIndex = kept.findIndex(
+      (other) => Math.abs(other.y - line.y) < 3.5 && overlapRatio(other, line) >= 0.5,
+    );
+    if (twinIndex < 0) {
+      kept.push(line);
+      continue;
+    }
+
+    const twin = kept[twinIndex];
+    const preferLine =
+      (line.inlineLabel && !twin.inlineLabel) ||
+      (line.source === "text" && twin.source === "vector") ||
+      line.x2 - line.x1 > twin.x2 - twin.x1 + 4;
+    if (preferLine) {
+      kept[twinIndex] = {
+        ...line,
+        x1: Math.min(line.x1, twin.x1),
+        x2: Math.max(line.x2, twin.x2),
+        inlineLabel: line.inlineLabel || twin.inlineLabel,
+      };
+    } else {
+      twin.x1 = Math.min(twin.x1, line.x1);
+      twin.x2 = Math.max(twin.x2, line.x2);
+      twin.inlineLabel = twin.inlineLabel || line.inlineLabel;
+    }
+  }
+
+  return kept;
+}
+
 function collectVectorLines(
   operatorList: { fnArray: number[]; argsArray: unknown[] },
   OPS: { constructPath: number },
@@ -175,7 +220,6 @@ function collectVectorLines(
     if (width >= 48) {
       solid.push({ x1, y: (y1 + y2) / 2, x2, source: "vector" });
     } else if (width >= 1.2 && width < 48) {
-      // Short dashes / dotted path segments that together form a writing line.
       dashes.push({ x1, y: (y1 + y2) / 2, x2, source: "vector" });
     }
   }
@@ -185,33 +229,50 @@ function collectVectorLines(
 
 function collectTextFillLines(textItems: TextItem[]) {
   const lines: Array<Line & { inlineLabel?: string }> = [];
+  const fillRunGlobal = /[._\-·…‧∙＿ .]{6,}/gu;
 
   for (const item of textItems) {
     const text = item.text;
-    const inline = text.match(LABEL_FILL_RE);
-    if (inline) {
-      const label = cleanLabel(inline[1] || "");
-      const fill = inline[2] || "";
-      if (fillRatio(fill) >= 0.7 && fill.replace(/\s+/g, "").length >= 6) {
-        const labelWidth = item.width * (inline[1].length / Math.max(text.length, 1));
-        const fillStart = item.x + labelWidth;
-        lines.push({
-          x1: fillStart,
-          y: item.y,
-          x2: item.x + item.width,
-          source: "text",
-          inlineLabel: label || undefined,
-        });
-        continue;
+    const runs: Array<{ start: number; end: number }> = [];
+    fillRunGlobal.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = fillRunGlobal.exec(text)) !== null) {
+      if (fillRatio(match[0]) >= 0.7 && match[0].replace(/\s+/g, "").length >= 6) {
+        runs.push({ start: match.index, end: match.index + match[0].length });
       }
     }
 
-    if (isMostlyFillText(text) || FILL_RUN_RE.test(text.replace(/\s+/g, ""))) {
+    if (!runs.length) {
+      if (isMostlyFillText(text) || FILL_RUN_RE.test(text.replace(/\s+/g, ""))) {
+        lines.push({
+          x1: item.x,
+          y: item.y,
+          x2: item.x + Math.max(item.width, 48),
+          source: "text",
+        });
+      }
+      continue;
+    }
+
+    for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+      const run = runs[runIndex];
+      const after = text.slice(run.end).trim();
+      // TOC / leader dots that continue into a page number or other content.
+      if (after && /[A-Za-z0-9]/.test(after) && fillRatio(after) < 0.3 && !after.startsWith(",")) {
+        continue;
+      }
+
+      const previousEnd = runIndex === 0 ? 0 : runs[runIndex - 1].end;
+      const before = text.slice(previousEnd, run.start);
+      const label = cleanLabel(before.replace(/[,;]\s*$/g, ""));
+      const startRatio = run.start / Math.max(text.length, 1);
+      const endRatio = run.end / Math.max(text.length, 1);
       lines.push({
-        x1: item.x,
+        x1: item.x + item.width * startRatio,
         y: item.y,
-        x2: item.x + Math.max(item.width, 48),
+        x2: item.x + item.width * endRatio,
         source: "text",
+        inlineLabel: label || undefined,
       });
     }
   }
@@ -301,21 +362,20 @@ function isDecorativeLine(
   const span = line.x2 - line.x1;
   if (span < 40) return true;
 
-  // Near-full-page rules / box borders.
-  if (span >= pageWidth * 0.82 && (line.x1 < pageWidth * 0.08 || line.x2 > pageWidth * 0.92)) {
+  const nearTop = line.y >= pageHeight * 0.78;
+  const nearBottom = line.y <= pageHeight * 0.12;
+  const nearFullWidth =
+    span >= pageWidth * 0.82 &&
+    (line.x1 < pageWidth * 0.08 || line.x2 > pageWidth * 0.92);
+  const genericPageField = /^Page \d+ field$/i.test(label);
+
+  // True page/frame borders: near-full width at the extreme top/bottom without a field label.
+  if (nearFullWidth && (nearTop || nearBottom) && (looksLikeTitleLabel(label) || genericPageField)) {
     return true;
   }
 
-  // Title underline / double-box under a large ALL CAPS heading.
-  if (
-    span >= pageWidth * 0.45 &&
-    line.y >= pageHeight * 0.78 &&
-    looksLikeTitleLabel(label)
-  ) {
-    return true;
-  }
-
-  if (looksLikeTitleLabel(label) && span >= pageWidth * 0.5) {
+  // Title underline under a large ALL CAPS heading near the top only.
+  if (nearTop && looksLikeTitleLabel(label) && span >= pageWidth * 0.45) {
     return true;
   }
 
@@ -384,7 +444,7 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
 
     const vectorLines = collectVectorLines(operatorList, OPS);
     const textLines = collectTextFillLines(textItems);
-    const lines = mergeLineSegments([...vectorLines, ...textLines]);
+    const lines = dedupeOverlappingLines(mergeLineSegments([...vectorLines, ...textLines]));
 
     for (const line of lines) {
       const priorField = detected[detected.length - 1];
@@ -406,7 +466,10 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
       });
     }
 
-    for (const item of textItems.filter((textItem) => /[☐□\[\]]/.test(textItem.text.trim()) && textItem.text.trim().length <= 2)) {
+    for (const item of textItems.filter((textItem) => {
+      const glyph = textItem.text.trim();
+      return glyph === "☐" || glyph === "□";
+    })) {
       const label = textItems
         .filter(
           (candidate) =>

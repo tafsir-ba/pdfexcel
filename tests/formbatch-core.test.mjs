@@ -218,6 +218,109 @@ test("auto-map matches synonyms and fuzzy header names", () => {
   assert.equal(mapped["Né(e) le"], "host_dob");
 });
 
+test("wide mid-page writing lines and ALL-CAPS labels stay detectable", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([612, 792]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  page.drawText("Address", { x: 40, y: 400, size: 11, font });
+  page.drawLine({
+    start: { x: 36, y: 398 },
+    end: { x: 576, y: 398 },
+    thickness: 0.5,
+    color: rgb(0, 0, 0),
+  });
+  page.drawText("PERMANENT ADDRESS", { x: 54, y: 300, size: 11, font });
+  page.drawLine({
+    start: { x: 54, y: 285 },
+    end: { x: 400, y: 285 },
+    thickness: 0.5,
+    color: rgb(0, 0, 0),
+  });
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const names = (await detectStaticPdfFields(buffer)).map((field) => field.name);
+  assert.ok(names.includes("Address"), `got ${names.join(", ")}`);
+  assert.ok(names.includes("PERMANENT ADDRESS"), `got ${names.join(", ")}`);
+});
+
+test("bracket list markers are not treated as checkboxes", async () => {
+  const document = await PDFDocument.create();
+  document.registerFontkit(fontkit);
+  const page = document.addPage([400, 300]);
+  const fontBytes = await readFile(new URL("../app/assets/NotoSans-Regular.ttf", import.meta.url));
+  const font = await document.embedFont(fontBytes);
+  page.drawText("[", { x: 40, y: 200, size: 12, font });
+  page.drawText("Agree", { x: 55, y: 200, size: 12, font });
+  page.drawText("☐", { x: 40, y: 160, size: 12, font });
+  page.drawText("Consent", { x: 55, y: 160, size: 12, font });
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const fields = await detectStaticPdfFields(buffer);
+  assert.equal(fields.filter((field) => field.type === "checkbox").length, 1);
+  assert.equal(fields.find((field) => field.type === "checkbox")?.name, "Consent");
+});
+
+test("overlapping text and vector writing lines dedupe to one field", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([500, 300]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  page.drawText("Email", { x: 40, y: 200, size: 11, font });
+  page.drawText("______________________________", { x: 100, y: 200, size: 11, font });
+  page.drawLine({
+    start: { x: 100, y: 198 },
+    end: { x: 400, y: 198 },
+    thickness: 0.5,
+    color: rgb(0, 0, 0),
+  });
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const names = (await detectStaticPdfFields(buffer)).map((field) => field.name);
+  assert.deepEqual(names.filter((name) => name.startsWith("Email")), ["Email"]);
+});
+
+test("Fait à / le dual dotted blanks become two labelled fields", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([612, 400]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  page.drawText("Fait à .................... , le ....................", {
+    x: 54,
+    y: 200,
+    size: 11,
+    font,
+  });
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const names = (await detectStaticPdfFields(buffer)).map((field) => field.name);
+  assert.ok(names.includes("Fait à"), `got ${names.join(", ")}`);
+  assert.ok(names.includes("le") || names.includes("le (2)") || names.some((n) => /^le/i.test(n)), `got ${names.join(", ")}`);
+  assert.equal(names.some((name) => name.includes("....")), false);
+});
+
+test("birth-date labels do not map to completion dates; Nomination does not steal NOM", () => {
+  assert.deepEqual(
+    autoMapFields(
+      [{ name: "Date de naissance" }, { name: "NOM" }],
+      ["completion_date", "date_of_birth", "host_last_name"],
+    ),
+    {
+      "Date de naissance": "date_of_birth",
+      NOM: "host_last_name",
+    },
+  );
+
+  assert.deepEqual(
+    autoMapFields([{ name: "Nomination" }, { name: "NOM" }], ["host_last_name", "other"]),
+    {
+      Nomination: "",
+      NOM: "host_last_name",
+    },
+  );
+});
+
 test("checkbox rules only mark explicit true values", () => {
   assert.equal(isCheckboxChecked("", {}), false);
   assert.equal(isCheckboxChecked(CHECKBOX_ALWAYS, {}), true);

@@ -8,19 +8,19 @@ const CHECKBOX_ALWAYS = "__formbatch_always_checked__";
 const SYNONYMS: Record<string, string[]> = {
   nom: ["lastname", "last", "surname", "familyname", "hostlastname", "guestlastname", "nomfamille"],
   prenom: ["firstname", "first", "givenname", "hostfirstname", "guestfirstname", "prenoms"],
-  neele: ["dob", "birthdate", "dateofbirth", "hostdob", "guestdob", "born"],
-  nee: ["dob", "birthdate", "dateofbirth"],
+  neele: ["dob", "birthdate", "dateofbirth", "hostdob", "guestdob"],
+  datedenaissance: ["dob", "birthdate", "dateofbirth", "hostdob", "guestdob"],
+  naissance: ["dob", "birthdate", "dateofbirth", "hostdob", "guestdob"],
   demeurant: ["address", "adresse", "street", "domicile", "residence", "livingat", "hostaddress"],
   adresse: ["address", "street", "demeurant", "domicile"],
-  a: ["placeofbirth", "birthplace", "bornin", "villedenaissance"],
   email: ["mail", "courriel"],
   telephone: ["phone", "tel", "mobile", "portable"],
   tel: ["phone", "telephone", "mobile"],
-  date: ["dated", "completiondate", "issuedate", "faitle"],
+  completiondate: ["issuedate", "faitle", "dated"],
   faita: ["city", "place", "lieu", "location"],
   signature: ["sign", "signed"],
   course: ["class", "training", "program"],
-  fullname: ["name", "recipient", "person", "fullnamee"],
+  fullname: ["recipient", "person", "fullnamee"],
 };
 
 function stripDiacritics(value: string) {
@@ -35,17 +35,28 @@ export function normalize(value: string) {
 
 function synonymKeys(normalizedField: string) {
   const keys = new Set<string>([normalizedField]);
+
   for (const [canonical, aliases] of Object.entries(SYNONYMS)) {
     const canon = normalize(canonical);
     const aliasHit = aliases.some((alias) => normalize(alias) === normalizedField);
-    const fieldExtendsCanon =
-      canon.length >= 3 &&
-      (normalizedField === canon || normalizedField.startsWith(canon));
-    if (canon === normalizedField || aliasHit || fieldExtendsCanon) {
+    if (canon === normalizedField || aliasHit) {
       keys.add(canon);
       for (const alias of aliases) keys.add(normalize(alias));
     }
   }
+
+  // Birth-date phrases ("Date de naissance", "Né(e) le") without prefix-bleeding "date".
+  if (
+    normalizedField.includes("naissance") ||
+    normalizedField.includes("birth") ||
+    /^ne+le$/.test(normalizedField) ||
+    normalizedField === "neele"
+  ) {
+    for (const alias of ["dob", "birthdate", "dateofbirth", "hostdob", "guestdob", "datedenaissance"]) {
+      keys.add(alias);
+    }
+  }
+
   return keys;
 }
 
@@ -56,7 +67,7 @@ function scoreHeaderMatch(fieldNormalized: string, headerNormalized: string) {
   const synonyms = synonymKeys(fieldNormalized);
   if (synonyms.has(headerNormalized)) return 90;
 
-  // Prefer longer synonym keys so "name" does not steal "lastname" columns.
+  // Prefer longer synonym keys so weak tokens do not steal columns.
   const synonymHits = [...synonyms]
     .filter((key) => key.length >= 4)
     .sort((left, right) => right.length - left.length);
