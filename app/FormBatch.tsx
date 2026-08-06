@@ -1025,14 +1025,14 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
       <section className="product-intro" id="top">
         <div className="intro-copy">
           <span className="eyebrow"><Zap size={15} /> Fillable PDF + spreadsheet</span>
-          <h1>PDF mail merge from Excel or CSV.</h1>
+          <h1>Batch-fill PDF forms from Excel or CSV.</h1>
           <p className="intro-text">
-            Export Excel or Google Sheets as CSV, match columns to your existing PDF form, then download individually named PDFs in one ZIP.
+            Upload your PDF form and spreadsheet, map columns once, then download a ZIP with one completed PDF per row.
           </p>
           <div className="trust-row">
             <span><Check size={16} /> No Acrobat</span>
             <span><Check size={16} /> No uploads</span>
-            <span><Check size={16} /> First 3 free</span>
+            <span><Check size={16} /> Generate 3 PDFs free</span>
           </div>
         </div>
         <div className="document-visual" aria-hidden="true">
@@ -1050,7 +1050,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
 
       <section className="tool-band" aria-label="PDF batch fill tool">
         <div className="stepper" aria-label={`Step ${step} of 3`}>
-          {["Add files", "Match fields", "Generate"].map((label, index) => (
+          {["Add files", "Map fields", "Download PDFs"].map((label, index) => (
             <div className={`step-item ${step >= index + 1 ? "active" : ""}`} key={label}>
               <span>{step > index + 1 ? <Check size={14} /> : index + 1}</span>
               {label}
@@ -1061,7 +1061,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         <div className="tool-surface">
           <div className="surface-heading">
             <div>
-              <h2>Choose your PDF template and recipient data</h2>
+              <h2>Add your PDF form and spreadsheet</h2>
               <p>Use a fillable or printed PDF with a CSV exported from Excel or Google Sheets. Up to {MAX_ROWS} recipients per merge.</p>
             </div>
             <button className="text-button" type="button" onClick={loadDemo} disabled={Boolean(busy)}>
