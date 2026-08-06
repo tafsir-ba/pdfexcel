@@ -1,0 +1,106 @@
+{
+  "theme": "light_only",
+  "archetype": "Swiss & High-Contrast with Old Money Tech elements (Trust, Authority, Clarity)",
+  "typography": {
+    "headings": {
+      "family": "Outfit, sans-serif",
+      "weights": ["400", "700"],
+      "usage": "Use for all H1, H2, H3. Adds character without losing professional trust.",
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "family": "Inter, sans-serif",
+      "weights": ["400", "500"],
+      "usage": "Use for UI elements, paragraphs, descriptions.",
+      "tracking": "tracking-normal"
+    },
+    "mono": {
+      "family": "IBM Plex Mono, monospace",
+      "weights": ["400"],
+      "usage": "Use for CSV column headers, data snippets, file names, and field mapping contexts.",
+      "tracking": "tracking-tight"
+    }
+  },
+  "colors": {
+    "background": {
+      "main": "#FAFAF7",
+      "surface": "#FFFFFF",
+      "surface_hover": "#F1F5F9"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "muted": "#94A3B8"
+    },
+    "brand": {
+      "accent": "#4F46E5",
+      "accent_hover": "#4338CA",
+      "accent_light": "rgba(79, 70, 229, 0.1)"
+    },
+    "semantic": {
+      "success": "#10B981",
+      "success_hover": "#059669",
+      "error": "#EF4444",
+      "border": "#E2E8F0"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "soft": "shadow-[0_4px_20px_rgba(15,23,42,0.05)]",
+      "medium": "shadow-[0_8px_30px_rgba(15,23,42,0.08)]",
+      "inner": "shadow-inner"
+    },
+    "radius": {
+      "card": "rounded-2xl",
+      "button": "rounded-full",
+      "input": "rounded-xl"
+    },
+    "surfaces": {
+      "glass": "backdrop-blur-xl bg-white/70 border border-slate-200/50 shadow-sm",
+      "solid": "bg-white border border-slate-200 shadow-sm"
+    }
+  },
+  "grids_and_layouts": {
+    "landing_hero": "grid-cols-1 md:grid-cols-12 gap-8. Hero text on col-span-5, live demo on col-span-7.",
+    "wizard_container": "max-w-5xl mx-auto p-6 md:p-12",
+    "mapping_split_view": "grid-cols-1 lg:grid-cols-12 gap-8. Mapping controls (left) col-span-5, Live PDF preview (right) col-span-7."
+  },
+  "motion": {
+    "hover": "transition-all duration-200 ease-out",
+    "entrance": "animate-in fade-in slide-in-from-bottom-4 duration-500",
+    "interactions": "Hover states must include a slight translateY (-1px) and shadow increase. Buttons scale active (scale-95)."
+  },
+  "accessibility": {
+    "contrast": "Ensure text over emerald/indigo is white. Muted text must remain >4.5:1 ratio on #FAFAF7.",
+    "focus": "focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none focus-visible:ring-offset-2",
+    "testing": "All interactive elements MUST include data-testid attributes (e.g., data-testid='upload-zone')."
+  },
+  "components": {
+    "instructions_to_main_agent": "Use Lucide-react for icons. Build custom layout for Wizard steps. Use standard HTML/Tailwind for structural layout and Shadcn components for UI logic (select, accordion). Use sonner for toasts.",
+    "custom": {
+      "UploadZone": "Dashed border (border-indigo-500/30), light indigo bg on drag-over, large Lucide Upload icon.",
+      "MappingRow": "Flex container connecting CSV Column (mono font) via a drawn SVG line/arrow to PDF Field.",
+      "PrivacyBadge": "Fixed or sticky small pill at the top/hero: '100% Local • No Server Uploads' with a lock icon.",
+      "Stepper": "Horizontal numbered steps. Active step gets indigo bg, completed gets emerald checkmark."
+    }
+  },
+  "media": {
+    "image_urls": {
+      "hero_background": {
+        "url": "https://images.unsplash.com/photo-1712698137596-15ea82027b55?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwaG9tZSUyMG9mZmljZSUyMGRlc2slMjBvdmVyaGVhZCUyMHZpZXd8ZW58MHx8fHwxNzg2MDQwNzc5fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Minimalist overhead desk, use as subtle blurred background or hero asset for abstract representation."
+      }
+    }
+  },
+  "GENERAL_UI_UX_DESIGN_GUIDELINES_FOR_MAIN_AGENT": [
+    "You MUST NOT apply universal transition (e.g., transition: all). Use specific properties.",
+    "You MUST NOT center align the App container.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Every interaction needs micro-animations - hover states, focus states, entrance animations.",
+    "Use 2-3x more spacing than feels comfortable (p-8, p-12).",
+    "Never use AI assistant Emojis.",
+    "Implement the 'Try the sample' flow which fully simulates the 3-step wizard with pre-loaded demo data.",
+    "Use generic component names and `.js` (not .tsx) if writing standalone components.",
+    "Include 'data-testid' on all actionable and informational elements."
+  ]
+}
