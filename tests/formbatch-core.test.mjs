@@ -131,6 +131,93 @@ test("printed PDF forms expose labelled writing lines as mappable fields", async
   assert.ok(fields[0].placement.width > 270);
 });
 
+test("dotted and underscored printed lines are detected with labels", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([612, 792]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+
+  page.drawText("ATTESTATION D'HEBERGEMENT", { x: 140, y: 720, size: 16, font });
+  page.drawRectangle({
+    x: 120,
+    y: 710,
+    width: 370,
+    height: 28,
+    borderWidth: 1,
+    borderColor: rgb(0, 0, 0),
+  });
+
+  page.drawText("NOM : ........................................", { x: 54, y: 640, size: 11, font });
+  page.drawText("Prénom : ....................................", { x: 54, y: 610, size: 11, font });
+  page.drawText("Né(e) le", { x: 54, y: 580, size: 11, font });
+  page.drawText("........................", { x: 120, y: 580, size: 11, font });
+  page.drawText("Demeurant", { x: 54, y: 550, size: 11, font });
+  page.drawText("____________________________________________", { x: 54, y: 530, size: 11, font });
+  page.drawText("Fait à .................... , le ....................", { x: 54, y: 480, size: 11, font });
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const fields = await detectStaticPdfFields(buffer);
+  const names = fields.map((field) => field.name);
+
+  assert.ok(names.includes("NOM"), `expected NOM in ${names.join(", ")}`);
+  assert.ok(names.includes("Prénom"), `expected Prénom in ${names.join(", ")}`);
+  assert.ok(
+    names.some((name) => /né/i.test(name)),
+    `expected birth-date label in ${names.join(", ")}`,
+  );
+  assert.ok(
+    names.some((name) => /demeurant/i.test(name)),
+    `expected Demeurant in ${names.join(", ")}`,
+  );
+  assert.equal(
+    names.includes("ATTESTATION D'HEBERGEMENT"),
+    false,
+    "title box must not become a fill field",
+  );
+});
+
+test("dashed vector writing lines merge into labelled fields", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([500, 300]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  page.drawText("Address", { x: 40, y: 200, size: 10, font });
+  for (let x = 120; x < 420; x += 8) {
+    page.drawLine({
+      start: { x, y: 198 },
+      end: { x: x + 4, y: 198 },
+      thickness: 0.6,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const fields = await detectStaticPdfFields(buffer);
+  assert.ok(fields.some((field) => field.name === "Address"));
+  assert.ok(fields.some((field) => field.name === "Address" && field.placement.width > 150));
+});
+
+test("auto-map matches synonyms and fuzzy header names", () => {
+  const fields = [
+    { name: "NOM" },
+    { name: "Prénom" },
+    { name: "Demeurant" },
+    { name: "Né(e) le" },
+  ];
+  const headers = [
+    "id",
+    "host_last_name",
+    "host_first_name",
+    "host_dob",
+    "address",
+  ];
+  const mapped = autoMapFields(fields, headers);
+  assert.equal(mapped.NOM, "host_last_name");
+  assert.equal(mapped.Prénom, "host_first_name");
+  assert.equal(mapped.Demeurant, "address");
+  assert.equal(mapped["Né(e) le"], "host_dob");
+});
+
 test("checkbox rules only mark explicit true values", () => {
   assert.equal(isCheckboxChecked("", {}), false);
   assert.equal(isCheckboxChecked(CHECKBOX_ALWAYS, {}), true);

@@ -308,7 +308,7 @@ export function FormBatch() {
           }
           setFields(staticFields);
           setNotice(
-            `Printed form detected. ${staticFields.length} writing areas were found and can be matched to CSV columns.`,
+            `Printed form detected. ${staticFields.length} writing areas found (dotted lines, underscores, and ruled lines). Match them to your CSV columns — names auto-map when labels are similar.`,
           );
         } else {
           setFields(nextFields);

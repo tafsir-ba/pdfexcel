@@ -17,6 +17,10 @@ export type DetectedStaticField = {
 
 export const CHECKBOX_ALWAYS = "__formbatch_always_checked__";
 const TRUE_CHECKBOX_VALUES = /^(1|true|yes|y|checked|x|oui)$/i;
+const FILL_CHAR_RE = /[._\-·…‧∙＿]/g;
+const FILL_RUN_RE = /([._\-·…‧∙＿])\1{5,}|[._\-·…‧∙＿]{6,}/;
+const LABEL_FILL_RE =
+  /^(.*?)(?:\s*[:：]\s*|\s+)([._\-·…‧∙＿ .]{6,})\s*$/u;
 
 export function isCheckboxChecked(
   rule: string,
@@ -79,12 +83,13 @@ type Line = {
   x1: number;
   y: number;
   x2: number;
+  source: "vector" | "text";
 };
 
 function cleanLabel(value: string) {
   return value
     .replace(/\s+/g, " ")
-    .replace(/\s*[:;]\s*$/, "")
+    .replace(/\s*[:;：]\s*$/, "")
     .trim()
     .slice(0, 110);
 }
@@ -96,6 +101,29 @@ function uniqueName(base: string, counts: Map<string, number>) {
   return count === 1 ? cleaned : `${cleaned} (${count})`;
 }
 
+function fillRatio(text: string) {
+  const compact = text.replace(/\s+/g, "");
+  if (!compact.length) return 0;
+  const fills = compact.match(FILL_CHAR_RE)?.length || 0;
+  return fills / compact.length;
+}
+
+function isMostlyFillText(text: string) {
+  const compact = text.replace(/\s+/g, "");
+  return compact.length >= 6 && fillRatio(text) >= 0.7;
+}
+
+function looksLikeTitleLabel(label: string) {
+  const cleaned = cleanLabel(label);
+  if (cleaned.length < 12) return false;
+  const letters = cleaned.replace(/[^A-Za-zÀ-ÿ]/g, "");
+  if (letters.length < 10) return false;
+  const upper = letters.toUpperCase();
+  const lower = letters.toLowerCase();
+  // ALL CAPS (or nearly) long headings are usually titles, not field labels.
+  return upper === letters || (upper !== lower && cleaned === cleaned.toUpperCase());
+}
+
 function mergeLineSegments(lines: Line[]) {
   const sorted = [...lines].sort((left, right) => right.y - left.y || left.x1 - right.x1);
   const merged: Line[] = [];
@@ -104,9 +132,10 @@ function mergeLineSegments(lines: Line[]) {
     const previous = merged[merged.length - 1];
     if (
       previous &&
-      Math.abs(previous.y - line.y) < 0.9 &&
-      line.x1 - previous.x2 < 3 &&
-      line.x1 >= previous.x1
+      previous.source === line.source &&
+      Math.abs(previous.y - line.y) < 1.2 &&
+      line.x1 - previous.x2 < 10 &&
+      line.x1 >= previous.x1 - 1
     ) {
       previous.x2 = Math.max(previous.x2, line.x2);
       continue;
@@ -118,21 +147,92 @@ function mergeLineSegments(lines: Line[]) {
     !all.some(
       (other, otherIndex) =>
         otherIndex !== index &&
-        Math.abs(other.y - line.y) < 0.9 &&
-        Math.abs(other.x1 - line.x1) < 1.5 &&
-        Math.abs(other.x2 - line.x2) < 1.5 &&
-        otherIndex < index,
+        otherIndex < index &&
+        Math.abs(other.y - line.y) < 1.2 &&
+        line.x1 >= other.x1 - 1 &&
+        line.x2 <= other.x2 + 1,
     ),
   );
 }
 
-function labelForLine(line: Line, textItems: TextItem[], priorField?: DetectedStaticField) {
+function collectVectorLines(
+  operatorList: { fnArray: number[]; argsArray: unknown[] },
+  OPS: { constructPath: number },
+) {
+  const solid: Line[] = [];
+  const dashes: Line[] = [];
+
+  for (let index = 0; index < operatorList.fnArray.length; index += 1) {
+    if (operatorList.fnArray[index] !== OPS.constructPath) continue;
+    const bounds = Array.from((operatorList.argsArray[index] as number[][] | undefined)?.[2] || []) as number[];
+    if (bounds.length < 4) continue;
+    const [x1, y1, x2, y2] = bounds;
+    const width = x2 - x1;
+    const height = Math.abs(y2 - y1);
+    if (height > 1.8) continue;
+    if (y1 <= 40) continue;
+
+    if (width >= 48) {
+      solid.push({ x1, y: (y1 + y2) / 2, x2, source: "vector" });
+    } else if (width >= 1.2 && width < 48) {
+      // Short dashes / dotted path segments that together form a writing line.
+      dashes.push({ x1, y: (y1 + y2) / 2, x2, source: "vector" });
+    }
+  }
+
+  return [...solid, ...mergeLineSegments(dashes).filter((line) => line.x2 - line.x1 >= 48)];
+}
+
+function collectTextFillLines(textItems: TextItem[]) {
+  const lines: Array<Line & { inlineLabel?: string }> = [];
+
+  for (const item of textItems) {
+    const text = item.text;
+    const inline = text.match(LABEL_FILL_RE);
+    if (inline) {
+      const label = cleanLabel(inline[1] || "");
+      const fill = inline[2] || "";
+      if (fillRatio(fill) >= 0.7 && fill.replace(/\s+/g, "").length >= 6) {
+        const labelWidth = item.width * (inline[1].length / Math.max(text.length, 1));
+        const fillStart = item.x + labelWidth;
+        lines.push({
+          x1: fillStart,
+          y: item.y,
+          x2: item.x + item.width,
+          source: "text",
+          inlineLabel: label || undefined,
+        });
+        continue;
+      }
+    }
+
+    if (isMostlyFillText(text) || FILL_RUN_RE.test(text.replace(/\s+/g, ""))) {
+      lines.push({
+        x1: item.x,
+        y: item.y,
+        x2: item.x + Math.max(item.width, 48),
+        source: "text",
+      });
+    }
+  }
+
+  return lines;
+}
+
+function labelForLine(
+  line: Line & { inlineLabel?: string },
+  textItems: TextItem[],
+  priorField?: DetectedStaticField,
+) {
+  if (line.inlineLabel) return line.inlineLabel;
+
   const sameRow = textItems
     .filter(
       (item) =>
-        Math.abs(item.y - line.y) <= 7 &&
+        !isMostlyFillText(item.text) &&
+        Math.abs(item.y - line.y) <= 8 &&
         item.x < line.x1 &&
-        item.x + item.width <= line.x1 + 12,
+        item.x + item.width <= line.x1 + 16,
     )
     .sort((left, right) => {
       const vertical = Math.abs(left.y - line.y) - Math.abs(right.y - line.y);
@@ -146,7 +246,8 @@ function labelForLine(line: Line, textItems: TextItem[], priorField?: DetectedSt
           item.x === sameRow.x &&
           item.y > sameRow.y &&
           item.y - sameRow.y < 16 &&
-          item.text !== sameRow.text,
+          item.text !== sameRow.text &&
+          !isMostlyFillText(item.text),
       )
       .sort((left, right) => left.y - right.y)[0];
     return cleanLabel(
@@ -159,19 +260,20 @@ function labelForLine(line: Line, textItems: TextItem[], priorField?: DetectedSt
   const above = textItems
     .filter(
       (item) =>
+        !isMostlyFillText(item.text) &&
         item.y > line.y &&
         item.y - line.y <= 28 &&
         item.x < line.x2 &&
-        item.x + item.width > line.x1,
+        item.x + item.width > line.x1 - 8,
     )
     .sort((left, right) => left.y - line.y - (right.y - line.y))[0];
   if (above) return cleanLabel(above.text);
 
   if (
     priorField?.placement &&
-    Math.abs(priorField.placement.x - line.x1) < 3 &&
-    Math.abs(priorField.placement.width - (line.x2 - line.x1)) < 5 &&
-    priorField.placement.y - line.y < 24
+    Math.abs(priorField.placement.x - line.x1) < 4 &&
+    Math.abs(priorField.placement.width - (line.x2 - line.x1)) < 8 &&
+    priorField.placement.y - line.y < 26
   ) {
     return priorField.name.replace(/ \(\d+\)$/, "");
   }
@@ -188,6 +290,36 @@ function representativeContext(line: Line, textItems: TextItem[]) {
         item.y - line.y < 125,
     )
     .sort((left, right) => left.y - line.y - (right.y - line.y))[0]?.text.trim();
+}
+
+function isDecorativeLine(
+  line: Line,
+  label: string,
+  pageWidth: number,
+  pageHeight: number,
+) {
+  const span = line.x2 - line.x1;
+  if (span < 40) return true;
+
+  // Near-full-page rules / box borders.
+  if (span >= pageWidth * 0.82 && (line.x1 < pageWidth * 0.08 || line.x2 > pageWidth * 0.92)) {
+    return true;
+  }
+
+  // Title underline / double-box under a large ALL CAPS heading.
+  if (
+    span >= pageWidth * 0.45 &&
+    line.y >= pageHeight * 0.78 &&
+    looksLikeTitleLabel(label)
+  ) {
+    return true;
+  }
+
+  if (looksLikeTitleLabel(label) && span >= pageWidth * 0.5) {
+    return true;
+  }
+
+  return false;
 }
 
 type PdfJsTextItem = {
@@ -227,6 +359,9 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
 
   for (let pageIndex = 0; pageIndex < document.numPages; pageIndex += 1) {
     const page = await document.getPage(pageIndex + 1);
+    const viewport = page.getViewport({ scale: 1 });
+    const pageWidth = viewport.width;
+    const pageHeight = viewport.height;
     const [sourceTextItems, operatorList] = await Promise.all([
       collectTextItems(page),
       page.getOperatorList(),
@@ -247,23 +382,15 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
         height: item.height,
       }));
 
-    const rawLines: Line[] = [];
-    for (let index = 0; index < operatorList.fnArray.length; index += 1) {
-      if (operatorList.fnArray[index] !== OPS.constructPath) continue;
-      const bounds = Array.from(operatorList.argsArray[index]?.[2] || []) as number[];
-      if (bounds.length < 4) continue;
-      const [x1, y1, x2, y2] = bounds;
-      const width = x2 - x1;
-      const height = y2 - y1;
-      if (width >= 80 && height <= 1.6 && y1 > 80) {
-        rawLines.push({ x1, y: (y1 + y2) / 2, x2 });
-      }
-    }
+    const vectorLines = collectVectorLines(operatorList, OPS);
+    const textLines = collectTextFillLines(textItems);
+    const lines = mergeLineSegments([...vectorLines, ...textLines]);
 
-    const lines = mergeLineSegments(rawLines);
     for (const line of lines) {
       const priorField = detected[detected.length - 1];
       const label = labelForLine(line, textItems, priorField);
+      if (isDecorativeLine(line, label, pageWidth, pageHeight)) continue;
+
       const context = representativeContext(line, textItems);
       const baseName = context ? `${context} - ${label}` : label;
       detected.push({
@@ -272,20 +399,21 @@ export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
         placement: {
           pageIndex,
           x: line.x1 + 2,
-          y: line.y + 2,
+          y: line.y + (line.source === "text" ? 0 : 2),
           width: Math.max(20, line.x2 - line.x1 - 4),
           height: 11,
         },
       });
     }
 
-    for (const item of textItems.filter((textItem) => textItem.text.trim() === "☐")) {
+    for (const item of textItems.filter((textItem) => /[☐□\[\]]/.test(textItem.text.trim()) && textItem.text.trim().length <= 2)) {
       const label = textItems
         .filter(
           (candidate) =>
             candidate.x > item.x &&
             Math.abs(candidate.y - item.y) < 7 &&
-            candidate.text.trim() !== "☐",
+            candidate.text.trim() !== item.text.trim() &&
+            !isMostlyFillText(candidate.text),
         )
         .sort((left, right) => left.x - right.x)[0];
       detected.push({
