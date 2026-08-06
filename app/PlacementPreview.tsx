@@ -253,12 +253,33 @@ export function PlacementPreview({
   const othersFor = (name: string) =>
     pageFields.filter((field) => field.name !== name).map((field) => field.placement);
 
+  const placeAtClientPoint = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !pageReady) return;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
+    if (canvasX < 0 || canvasY < 0 || canvasX > rect.width || canvasY > rect.height) return;
+    // Pass click center in PDF coords; addPrintedField centers the box on that point.
+    const pdfX = canvasX / scale;
+    const pdfYFromTop = canvasY / scale;
+    const pdfYCenter = pageSize.height - pdfYFromTop;
+    setPlacing(false);
+    focusNameAfterAddRef.current = true;
+    onAddField(safePageIndex, pageSize, { x: pdfX, y: pdfYCenter });
+  };
+
   const beginMove = (
     event: ReactPointerEvent<HTMLElement>,
     field: PreviewField & { placement: StaticPlacement },
   ) => {
     if ((event.target as HTMLElement).closest(".placement-handle")) return;
-    if (placing) return;
+    if (placing) {
+      event.preventDefault();
+      event.stopPropagation();
+      placeAtClientPoint(event.clientX, event.clientY);
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     onSelectField(field.name);
@@ -389,22 +410,6 @@ export function PlacementPreview({
     } catch {
       // Ignore if capture was already released.
     }
-  };
-
-  const placeAtClientPoint = (clientX: number, clientY: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas || !pageReady) return;
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = clientX - rect.left;
-    const canvasY = clientY - rect.top;
-    if (canvasX < 0 || canvasY < 0 || canvasX > rect.width || canvasY > rect.height) return;
-    const pdfX = canvasX / scale;
-    const pdfYFromTop = canvasY / scale;
-    const height = 28;
-    const pdfY = pageSize.height - pdfYFromTop - height / 2;
-    setPlacing(false);
-    focusNameAfterAddRef.current = true;
-    onAddField(safePageIndex, pageSize, { x: pdfX, y: pdfY });
   };
 
   const commitName = () => {

@@ -53,9 +53,8 @@ import {
   CHECKBOX_ALWAYS,
   detectStaticPdfFields,
   isCheckboxChecked,
-  mergeSavedPlacements,
   PLACEMENT_FONT_OPTIONS,
-  withoutRemovedFields,
+  withSavedPlacements,
   type DetectedStaticField,
   type PlacementFontFamily,
   type StaticPlacement,
@@ -1056,10 +1055,7 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           const removed = pendingRemovedRef.current;
           pendingPlacementsRef.current = null;
           pendingRemovedRef.current = null;
-          const merged = withoutRemovedFields(
-            mergeSavedPlacements(staticFields, restored),
-            removed,
-          );
+          const merged = withSavedPlacements(staticFields, restored, removed);
           const separated: DetectedStaticField[] = [];
           for (let pageIndex = 0; pageIndex < document.getPageCount(); pageIndex += 1) {
             const size = document.getPage(pageIndex).getSize();

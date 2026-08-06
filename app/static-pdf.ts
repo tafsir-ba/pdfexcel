@@ -91,6 +91,32 @@ export function withoutRemovedFields<T extends { name: string }>(
   return fields.filter((field) => !skip.has(field.name));
 }
 
+/**
+ * Restore saved box geometry onto detected fields and rehydrate manual Add-field
+ * boxes that auto-detection cannot find (e.g. image-only PDFs after cloud restore).
+ */
+export function withSavedPlacements(
+  detected: DetectedStaticField[],
+  saved?: Record<string, StaticPlacement> | null,
+  removed?: string[] | null,
+): DetectedStaticField[] {
+  const merged = withoutRemovedFields(mergeSavedPlacements(detected, saved), removed);
+  if (!saved) return merged;
+  const removedSet = new Set(removed || []);
+  const present = new Set(merged.map((field) => field.name));
+  const extras: DetectedStaticField[] = [];
+  for (const [name, placement] of Object.entries(saved)) {
+    if (removedSet.has(name) || present.has(name)) continue;
+    if (!placement || typeof placement.pageIndex !== "number") continue;
+    extras.push({
+      name,
+      type: "text",
+      placement: { ...placement },
+    });
+  }
+  return extras.length ? [...merged, ...extras] : merged;
+}
+
 export type StaticFontSet = {
   default: PDFFont;
   helvetica?: PDFFont;

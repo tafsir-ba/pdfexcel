@@ -14,6 +14,7 @@ import {
   isCheckboxChecked,
   mergeSavedPlacements,
   withoutRemovedFields,
+  withSavedPlacements,
 } from "../app/static-pdf.ts";
 import { autoMapFields, reconcileFieldMapping } from "../app/mapping.ts";
 
@@ -634,6 +635,51 @@ test("withoutRemovedFields drops previewer-deleted writing areas", () => {
   );
   assert.deepEqual(withoutRemovedFields(fields, null), fields);
   assert.deepEqual(withoutRemovedFields(fields, []), fields);
+});
+
+test("withSavedPlacements rehydrates manual fields when detection is empty", () => {
+  const saved = {
+    "Field 1": {
+      pageIndex: 0,
+      x: 120,
+      y: 400,
+      width: 200,
+      height: 28,
+      fontFamily: "helvetica",
+      fontSize: 12,
+      bold: true,
+      align: "center",
+    },
+  };
+  const restored = withSavedPlacements([], saved, null);
+  assert.equal(restored.length, 1);
+  assert.equal(restored[0].name, "Field 1");
+  assert.equal(restored[0].type, "text");
+  assert.equal(restored[0].placement.x, 120);
+  assert.equal(restored[0].placement.bold, true);
+  assert.equal(restored[0].placement.align, "center");
+});
+
+test("withSavedPlacements merges detected boxes and skips removed manual names", () => {
+  const detected = [
+    {
+      name: "Nom",
+      type: "text",
+      placement: { pageIndex: 0, x: 100, y: 200, width: 180, height: 12 },
+    },
+  ];
+  const saved = {
+    Nom: { pageIndex: 0, x: 140, y: 198, width: 180, height: 12 },
+    "Field 2": { pageIndex: 0, x: 50, y: 80, width: 160, height: 28 },
+    Gone: { pageIndex: 0, x: 10, y: 10, width: 100, height: 20 },
+  };
+  const restored = withSavedPlacements(detected, saved, ["Gone"]);
+  assert.deepEqual(
+    restored.map((field) => field.name),
+    ["Nom", "Field 2"],
+  );
+  assert.equal(restored[0].placement.x, 140);
+  assert.equal(restored[1].placement.y, 80);
 });
 
 test("placement geometry separates overlaps and supports non-overlapping resize", async () => {
