@@ -24,7 +24,10 @@ const SYNONYMS: Record<string, string[]> = {
   faita: ["city", "place", "lieu", "location"],
   signature: ["sign", "signed"],
   course: ["class", "training", "program"],
-  fullname: ["recipient", "person", "fullnamee"],
+  fullname: ["recipient", "person", "fullnamee", "recipientname", "fullname", "student"],
+  recipientname: ["fullname", "fullnamee", "person", "student", "recipient"],
+  degree: ["diploma", "title", "qualification", "grade"],
+  fieldofstudy: ["major", "subject", "program", "course", "discipline", "study"],
 };
 
 function stripDiacritics(value: string) {

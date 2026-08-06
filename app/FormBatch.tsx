@@ -946,7 +946,9 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
         if (!nextFields.length) {
           const staticFields = await detectStaticPdfFields(bytes);
           if (!staticFields.length) {
-            throw new Error("No fillable fields or blank writing lines could be detected in this PDF.");
+            throw new Error(
+              "No fillable fields or blank writing lines could be detected in this PDF. Use a PDF with form fields or printed underlines/labels (including captions under the lines). Scanned image-only PDFs are not supported yet.",
+            );
           }
           const restored = pendingPlacementsRef.current;
           const removed = pendingRemovedRef.current;

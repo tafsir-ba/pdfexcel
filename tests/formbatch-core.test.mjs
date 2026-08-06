@@ -106,6 +106,68 @@ test("custom font generation supports accented and Vietnamese names", async () =
   }
 });
 
+test("diploma-style captions under writing lines become field names", async () => {
+  const document = await PDFDocument.create();
+  const page = document.addPage([792, 612]);
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  const italic = await document.embedFont(StandardFonts.TimesRomanItalic);
+
+  page.drawText("This certifies that", { x: 320, y: 430, size: 14, font: italic });
+  page.drawLine({
+    start: { x: 180, y: 385 },
+    end: { x: 610, y: 385 },
+    thickness: 1.2,
+    color: rgb(0.72, 0.58, 0.28),
+  });
+  page.drawText("Recipient Name", { x: 355, y: 368, size: 8, font });
+
+  page.drawText("has completed the fictional requirements for the novelty degree of", {
+    x: 170,
+    y: 340,
+    size: 12,
+    font: italic,
+  });
+  page.drawLine({
+    start: { x: 250, y: 310 },
+    end: { x: 540, y: 310 },
+    thickness: 1.2,
+    color: rgb(0.72, 0.58, 0.28),
+  });
+  page.drawText("Degree", { x: 380, y: 293, size: 8, font });
+
+  page.drawText("in", { x: 390, y: 270, size: 12, font: italic });
+  page.drawLine({
+    start: { x: 250, y: 240 },
+    end: { x: 540, y: 240 },
+    thickness: 1.2,
+    color: rgb(0.72, 0.58, 0.28),
+  });
+  page.drawText("Field of Study", { x: 360, y: 223, size: 8, font });
+
+  page.drawText("Given as a sample novelty document on", { x: 200, y: 180, size: 11, font: italic });
+  page.drawLine({
+    start: { x: 430, y: 178 },
+    end: { x: 580, y: 178 },
+    thickness: 1.2,
+    color: rgb(0.72, 0.58, 0.28),
+  });
+  page.drawText("Date", { x: 495, y: 161, size: 8, font });
+
+  const bytes = await document.save();
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const names = (await detectStaticPdfFields(buffer)).map((field) => field.name);
+
+  assert.ok(names.includes("Recipient Name"), `got ${names.join(", ")}`);
+  assert.ok(names.includes("Degree"), `got ${names.join(", ")}`);
+  assert.ok(names.includes("Field of Study"), `got ${names.join(", ")}`);
+  assert.ok(names.includes("Date"), `got ${names.join(", ")}`);
+  assert.equal(
+    names.some((name) => /given as a sample/i.test(name)),
+    false,
+    "long sentence beside the date line must not become the field name",
+  );
+});
+
 test("printed PDF forms expose labelled writing lines as mappable fields", async () => {
   const document = await PDFDocument.create();
   const page = document.addPage([500, 300]);

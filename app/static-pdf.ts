@@ -420,6 +420,68 @@ function collectTextFillLines(textItems: TextItem[]) {
   return lines;
 }
 
+/** Short captions printed under/over a writing line (diplomas, certificates). */
+function looksLikeFieldCaption(label: string) {
+  const cleaned = cleanLabel(label);
+  if (!cleaned || cleaned.length > 42) return false;
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 5) return false;
+  // Reject sentence fragments that sit beside a blank ("Given as a sample… on").
+  if (
+    words.length >= 3 &&
+    /^(this|that|has|have|had|given|for|the|and|with|from|into|onto)\b/i.test(cleaned)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function findCaptionNearLine(
+  line: Line,
+  textItems: TextItem[],
+  mode: "below" | "above" | "left",
+) {
+  const candidates = textItems.filter((item) => {
+    if (isMostlyFillText(item.text)) return false;
+    if (mode === "left") {
+      return (
+        Math.abs(item.y - line.y) <= 8 &&
+        item.x < line.x1 &&
+        item.x + item.width <= line.x1 + 16
+      );
+    }
+    if (mode === "below") {
+      return (
+        item.y < line.y &&
+        line.y - item.y <= 24 &&
+        item.x < line.x2 &&
+        item.x + item.width > line.x1
+      );
+    }
+    return (
+      item.y > line.y &&
+      item.y - line.y <= 28 &&
+      item.x < line.x2 + 8 &&
+      item.x + item.width > line.x1 - 8
+    );
+  });
+
+  return candidates.sort((left, right) => {
+    if (mode === "left") {
+      const vertical = Math.abs(left.y - line.y) - Math.abs(right.y - line.y);
+      return vertical || right.x + right.width - (left.x + left.width);
+    }
+    const leftDistance = Math.abs(left.y - line.y);
+    const rightDistance = Math.abs(right.y - line.y);
+    if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+    // Prefer captions centered under/over the writing line.
+    const lineMid = (line.x1 + line.x2) / 2;
+    const leftMid = left.x + left.width / 2;
+    const rightMid = right.x + right.width / 2;
+    return Math.abs(leftMid - lineMid) - Math.abs(rightMid - lineMid);
+  })[0];
+}
+
 function labelForLine(
   line: Line & { inlineLabel?: string },
   textItems: TextItem[],
@@ -427,48 +489,53 @@ function labelForLine(
 ) {
   if (line.inlineLabel) return line.inlineLabel;
 
-  const sameRow = textItems
-    .filter(
-      (item) =>
-        !isMostlyFillText(item.text) &&
-        Math.abs(item.y - line.y) <= 8 &&
-        item.x < line.x1 &&
-        item.x + item.width <= line.x1 + 16,
-    )
-    .sort((left, right) => {
-      const vertical = Math.abs(left.y - line.y) - Math.abs(right.y - line.y);
-      return vertical || right.x + right.width - (left.x + left.width);
-    })[0];
+  const sameRow = findCaptionNearLine(line, textItems, "left");
+  const below = findCaptionNearLine(line, textItems, "below");
+  const above = findCaptionNearLine(line, textItems, "above");
 
-  if (sameRow) {
-    const priorLine = textItems
-      .filter(
-        (item) =>
-          item.x === sameRow.x &&
-          item.y > sameRow.y &&
-          item.y - sameRow.y < 16 &&
-          item.text !== sameRow.text &&
-          !isMostlyFillText(item.text),
+  const sameRowLabel = sameRow
+    ? cleanLabel(
+        (() => {
+          const priorLine = textItems
+            .filter(
+              (item) =>
+                item.x === sameRow.x &&
+                item.y > sameRow.y &&
+                item.y - sameRow.y < 16 &&
+                item.text !== sameRow.text &&
+                !isMostlyFillText(item.text),
+            )
+            .sort((left, right) => left.y - right.y)[0];
+          return priorLine && /^procuration/i.test(sameRow.text.trim())
+            ? `${priorLine.text} ${sameRow.text}`
+            : sameRow.text;
+        })(),
       )
-      .sort((left, right) => left.y - right.y)[0];
-    return cleanLabel(
-      priorLine && /^procuration/i.test(sameRow.text.trim())
-        ? `${priorLine.text} ${sameRow.text}`
-        : sameRow.text,
-    );
+    : "";
+  const belowLabel = below ? cleanLabel(below.text) : "";
+  const aboveLabel = above ? cleanLabel(above.text) : "";
+  const sameRowIsCaption = Boolean(sameRowLabel && looksLikeFieldCaption(sameRowLabel));
+  const belowCaption =
+    below && belowLabel && looksLikeFieldCaption(belowLabel)
+      ? { label: belowLabel, distance: line.y - below.y }
+      : null;
+  const aboveCaption =
+    above && aboveLabel && looksLikeFieldCaption(aboveLabel)
+      ? { label: aboveLabel, distance: above.y - line.y }
+      : null;
+
+  // Prefer nearby short captions (under or over the rule) over long prose beside blanks.
+  if (!sameRowIsCaption && (belowCaption || aboveCaption)) {
+    if (belowCaption && aboveCaption) {
+      return belowCaption.distance <= aboveCaption.distance ? belowCaption.label : aboveCaption.label;
+    }
+    return (belowCaption || aboveCaption)!.label;
   }
 
-  const above = textItems
-    .filter(
-      (item) =>
-        !isMostlyFillText(item.text) &&
-        item.y > line.y &&
-        item.y - line.y <= 28 &&
-        item.x < line.x2 &&
-        item.x + item.width > line.x1 - 8,
-    )
-    .sort((left, right) => left.y - line.y - (right.y - line.y))[0];
-  if (above) return cleanLabel(above.text);
+  if (sameRowLabel) return sameRowLabel;
+  if (belowCaption) return belowCaption.label;
+  if (aboveCaption) return aboveCaption.label;
+  if (aboveLabel) return aboveLabel;
 
   if (
     priorField?.placement &&
