@@ -35,7 +35,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import unicodeFontDataUrl from "./assets/NotoSans-Regular.ttf?inline";
 import { decodeCsvBytes } from "./csv";
 import { createDemoFiles } from "./demo-files";
@@ -45,6 +45,7 @@ import {
   CHECKBOX_ALWAYS,
   detectStaticPdfFields,
   isCheckboxChecked,
+  mergeSavedPlacements,
   type DetectedStaticField,
   type StaticPlacement,
 } from "./static-pdf";
@@ -67,7 +68,16 @@ type StoredWorkspace = {
   mapping: Record<string, string>;
   filenameColumn: string;
   flatten: boolean;
+  /** User-nudged printed-form boxes keyed by field name (PDF points). */
+  fieldPlacements?: Record<string, StaticPlacement>;
 };
+
+function fieldPlacementsFromFields(fields: PdfField[]): Record<string, StaticPlacement> | undefined {
+  const entries = fields
+    .filter((field): field is PdfField & { placement: StaticPlacement } => Boolean(field.placement))
+    .map((field) => [field.name, field.placement] as const);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
 
 const PRICE_USD = 19;
 const FREE_ROWS = 3;
@@ -230,6 +240,8 @@ export function FormBatch() {
   const [notice, setNotice] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
+  /** Applied once after PDF re-detect following Stripe workspace restore. */
+  const pendingPlacementsRef = useRef<Record<string, StaticPlacement> | null>(null);
 
   const supportedFields = useMemo(
     () => fields.filter((field) => field.type !== "unsupported"),
@@ -290,6 +302,7 @@ export function FormBatch() {
         setHasAccess(true);
         const saved = await loadWorkspace();
         if (saved) {
+          pendingPlacementsRef.current = saved.fieldPlacements || null;
           setPdfFile(new File([saved.pdfBytes], saved.pdfName, { type: "application/pdf" }));
           setCsvFile(new File([saved.csvBytes || saved.csvText || ""], saved.csvName, { type: "text/csv" }));
           setMapping(saved.mapping);
@@ -325,11 +338,16 @@ export function FormBatch() {
           if (!staticFields.length) {
             throw new Error("No fillable fields or blank writing lines could be detected in this PDF.");
           }
-          setFields(staticFields);
+          const restored = pendingPlacementsRef.current;
+          pendingPlacementsRef.current = null;
+          setFields(mergeSavedPlacements(staticFields, restored));
           setNotice(
-            `Printed form detected. ${staticFields.length} writing areas found (dotted lines, underscores, and ruled lines). Match them to your CSV columns — names auto-map when labels are similar.`,
+            restored
+              ? `Printed form restored. ${staticFields.length} writing areas loaded with your saved alignment.`
+              : `Printed form detected. ${staticFields.length} writing areas found (dotted lines, underscores, and ruled lines). Match them to your CSV columns — names auto-map when labels are similar.`,
           );
         } else {
+          pendingPlacementsRef.current = null;
           setFields(nextFields);
         }
       } catch (pdfError) {
@@ -415,6 +433,7 @@ export function FormBatch() {
       setError("The PDF is larger than 25 MB. Choose a smaller template.");
       return;
     }
+    pendingPlacementsRef.current = null;
     setPdfFile(file);
     setError("");
     setNotice("");
@@ -451,6 +470,7 @@ export function FormBatch() {
     setError("");
     try {
       const demo = await createDemoFiles();
+      pendingPlacementsRef.current = null;
       setPdfFile(demo.pdf);
       setCsvFile(demo.csv);
       setNotice("Sample loaded. The first three generated PDFs are free to download.");
@@ -558,6 +578,7 @@ export function FormBatch() {
         mapping,
         filenameColumn,
         flatten,
+        fieldPlacements: fieldPlacementsFromFields(fields),
       });
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -574,6 +595,7 @@ export function FormBatch() {
   };
 
   const reset = () => {
+    pendingPlacementsRef.current = null;
     setPdfFile(null);
     setCsvFile(null);
     setFields([]);

@@ -27,6 +27,18 @@ export function isCheckboxChecked(
   return rule === CHECKBOX_ALWAYS || TRUE_CHECKBOX_VALUES.test((row[rule] || "").trim());
 }
 
+/** Re-apply user-nudged boxes after PDF re-detection (e.g. Stripe return). */
+export function mergeSavedPlacements<T extends { name: string; placement: StaticPlacement }>(
+  fields: T[],
+  saved?: Record<string, StaticPlacement> | null,
+): T[] {
+  if (!saved) return fields;
+  return fields.map((field) => {
+    const placement = saved[field.name];
+    return placement ? { ...field, placement } : field;
+  });
+}
+
 export function applyStaticPdfFields(
   document: PDFDocument,
   fields: DetectedStaticField[],

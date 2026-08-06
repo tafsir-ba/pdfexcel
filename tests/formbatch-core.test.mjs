@@ -12,6 +12,7 @@ import {
   CHECKBOX_ALWAYS,
   detectStaticPdfFields,
   isCheckboxChecked,
+  mergeSavedPlacements,
 } from "../app/static-pdf.ts";
 import { autoMapFields, reconcileFieldMapping } from "../app/mapping.ts";
 
@@ -400,4 +401,28 @@ test("mapping reconcile preserves Always-check and intentional blank values", ()
   });
   assert.equal(remapped.Approved, "Approved");
   assert.equal(remapped["Full Name"], "Full Name");
+});
+
+test("mergeSavedPlacements restores nudged boxes by field name after re-detect", () => {
+  const detected = [
+    {
+      name: "Nom",
+      type: "text",
+      placement: { pageIndex: 0, x: 100, y: 200, width: 180, height: 12 },
+    },
+    {
+      name: "Adresse",
+      type: "text",
+      placement: { pageIndex: 0, x: 100, y: 160, width: 220, height: 12 },
+    },
+  ];
+  const saved = {
+    Nom: { pageIndex: 0, x: 140, y: 198, width: 180, height: 12 },
+  };
+
+  const merged = mergeSavedPlacements(detected, saved);
+  assert.equal(merged[0].placement.x, 140);
+  assert.equal(merged[1].placement.x, 100);
+  assert.deepEqual(mergeSavedPlacements(detected, null), detected);
+  assert.deepEqual(mergeSavedPlacements(detected, undefined), detected);
 });

@@ -3,6 +3,7 @@
 import {
   PointerEvent as ReactPointerEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -23,6 +24,8 @@ type PlacementPreviewProps = {
   onMoveField: (name: string, placement: StaticPlacement) => void;
 };
 
+const PREVIEW_PAGE_INDEX = 0;
+
 export function PlacementPreview({
   pdfFile,
   fields,
@@ -42,8 +45,16 @@ export function PlacementPreview({
     startPlacement: StaticPlacement;
   } | null>(null);
 
-  const placedFields = fields.filter(
-    (field): field is PreviewField & { placement: StaticPlacement } => Boolean(field.placement),
+  const pageFields = useMemo(
+    () =>
+      fields.filter(
+        (field): field is PreviewField & { placement: StaticPlacement } =>
+          Boolean(field.placement) && field.placement!.pageIndex === PREVIEW_PAGE_INDEX,
+      ),
+    [fields],
+  );
+  const hiddenOtherPages = fields.some(
+    (field) => field.placement && field.placement.pageIndex !== PREVIEW_PAGE_INDEX,
   );
 
   useEffect(() => {
@@ -60,7 +71,7 @@ export function PlacementPreview({
           useSystemFonts: true,
         });
         const pdfDocument = await loadingTask.promise;
-        const page = await pdfDocument.getPage(1);
+        const page = await pdfDocument.getPage(PREVIEW_PAGE_INDEX + 1);
         const base = page.getViewport({ scale: 1 });
         const fitScale = Math.min(1.15, 720 / base.width);
         const viewport = page.getViewport({ scale: fitScale });
@@ -75,6 +86,9 @@ export function PlacementPreview({
         if (!context) return;
         canvas.width = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
+        // Explicit CSS pixel size prevents browser shrinking that desyncs overlays.
+        canvas.style.width = `${canvas.width}px`;
+        canvas.style.height = `${canvas.height}px`;
         await page.render({ canvasContext: context, viewport, canvas }).promise;
         setPageSize({ width: base.width, height: base.height });
         setScale(fitScale);
@@ -141,7 +155,7 @@ export function PlacementPreview({
     }
   };
 
-  if (!placedFields.length) return null;
+  if (!pageFields.length && !hiddenOtherPages) return null;
 
   return (
     <div className="placement-preview">
@@ -154,37 +168,44 @@ export function PlacementPreview({
       {error ? (
         <p className="placement-preview-error">{error}</p>
       ) : (
-        <div className="placement-stage">
-          <canvas ref={canvasRef} className="placement-canvas" />
-          {pageSize.height > 0 &&
-            placedFields.map((field) => {
-              const box = toCanvas(field.placement);
-              const sample = sampleValues[field.name] || field.name;
-              const active = selectedField === field.name;
-              return (
-                <button
-                  key={field.name}
-                  type="button"
-                  className={`placement-box ${active ? "active" : ""} ${field.type}`}
-                  style={{
-                    left: box.x,
-                    top: box.y,
-                    width: box.width,
-                    height: box.height,
-                  }}
-                  title={`Drag to position “${field.name}”`}
-                  aria-label={`Reposition ${field.name}`}
-                  onPointerDown={(event) => onPointerDown(event, field)}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
-                  onPointerCancel={onPointerUp}
-                  onClick={() => onSelectField(field.name)}
-                >
-                  <span className="placement-box-label">{sample}</span>
-                </button>
-              );
-            })}
-        </div>
+        <>
+          <div className="placement-stage">
+            <canvas ref={canvasRef} className="placement-canvas" />
+            {pageSize.height > 0 &&
+              pageFields.map((field) => {
+                const box = toCanvas(field.placement);
+                const sample = sampleValues[field.name] || field.name;
+                const active = selectedField === field.name;
+                return (
+                  <button
+                    key={field.name}
+                    type="button"
+                    className={`placement-box ${active ? "active" : ""} ${field.type}`}
+                    style={{
+                      left: box.x,
+                      top: box.y,
+                      width: box.width,
+                      height: box.height,
+                    }}
+                    title={`Drag to position “${field.name}”`}
+                    aria-label={`Reposition ${field.name}`}
+                    onPointerDown={(event) => onPointerDown(event, field)}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerUp}
+                    onPointerCancel={onPointerUp}
+                    onClick={() => onSelectField(field.name)}
+                  >
+                    <span className="placement-box-label">{sample}</span>
+                  </button>
+                );
+              })}
+          </div>
+          {hiddenOtherPages && (
+            <p className="placement-preview-note">
+              Fields on later pages keep their detected positions. This preview shows page 1 only.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
