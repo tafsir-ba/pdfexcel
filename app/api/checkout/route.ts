@@ -1,37 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withAdminDb, pricingPlans, and, eq } from "../../../lib/admin-data";
-
-const DEFAULT_PLAN = {
-  name: "PDF Mail Merge 30-day access",
-  amountCents: 1900,
-  currency: "usd",
-  durationDays: 30,
-  productKey: "formbatch_30_day_access",
-  description: "Unlimited spreadsheet-to-PDF mail merge batches on one device for 30 days",
-};
-
-async function resolveLivePlan() {
-  try {
-    return await withAdminDb(async (db) => {
-      const [plan] = await db
-        .select()
-        .from(pricingPlans)
-        .where(and(eq(pricingPlans.active, true), eq(pricingPlans.archived, false)))
-        .limit(1);
-      if (!plan) return DEFAULT_PLAN;
-      return {
-        name: plan.name,
-        amountCents: plan.amountCents,
-        currency: plan.currency || "usd",
-        durationDays: plan.durationDays,
-        productKey: plan.productKey,
-        description: `Unlimited spreadsheet-to-PDF mail merge batches on one device for ${plan.durationDays} days`,
-      };
-    });
-  } catch {
-    return DEFAULT_PLAN;
-  }
-}
+import { resolveLivePlan } from "../../../lib/live-pricing";
 
 export async function POST(request: NextRequest) {
   const secretKey = process.env.STRIPE_SECRET_KEY;
@@ -63,6 +31,8 @@ export async function POST(request: NextRequest) {
   parameters.set("payment_intent_data[metadata][product]", plan.productKey);
   parameters.set("allow_promotion_codes", "true");
   parameters.set("billing_address_collection", "auto");
+  // Card-only avoids Stripe Dashboard Amazon Pay misconfig console noise for this flow.
+  parameters.set("payment_method_types[0]", "card");
 
   const stripeResponse = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",

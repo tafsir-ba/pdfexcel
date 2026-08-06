@@ -1,6 +1,22 @@
 import type { PDFDocument, PDFFont } from "pdf-lib";
 import "pdfjs-dist/legacy/build/pdf.worker.mjs";
 
+let pdfWorkerConfigured = false;
+
+async function configurePdfJsWorker() {
+  if (pdfWorkerConfigured || typeof window === "undefined") return;
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  try {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      "pdfjs-dist/legacy/build/pdf.worker.mjs",
+      import.meta.url,
+    ).toString();
+  } catch {
+    /* side-effect worker import above; browser may still use fake worker */
+  }
+  pdfWorkerConfigured = true;
+}
+
 export type StaticPlacement = {
   pageIndex: number;
   x: number;
@@ -455,6 +471,7 @@ async function collectTextItems(page: {
 }
 
 export async function detectStaticPdfFields(sourceBytes: ArrayBuffer) {
+  await configurePdfJsWorker();
   const { getDocument, OPS } = await import(
     "pdfjs-dist/legacy/build/pdf.mjs"
   );

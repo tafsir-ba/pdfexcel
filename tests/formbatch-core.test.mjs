@@ -342,6 +342,29 @@ test("birth-date labels do not map to completion dates; Nomination does not stea
   );
 });
 
+test("document Date prefers fait_le over birth-date columns", () => {
+  assert.deepEqual(
+    autoMapFields(
+      [{ name: "Date" }, { name: "Date de naissance" }, { name: "NOM" }],
+      ["host_date_naissance", "fait_le", "host_last_name"],
+    ),
+    {
+      Date: "fait_le",
+      "Date de naissance": "host_date_naissance",
+      NOM: "host_last_name",
+    },
+  );
+
+  assert.deepEqual(autoMapFields([{ name: "Date" }], ["host_date_naissance", "fait_le"]), {
+    Date: "fait_le",
+  });
+
+  // Prefer leaving Date unmapped over guessing a birth column.
+  assert.deepEqual(autoMapFields([{ name: "Date" }], ["host_date_naissance"]), {
+    Date: "",
+  });
+});
+
 test("checkbox rules only mark explicit true values", () => {
   assert.equal(isCheckboxChecked("", {}), false);
   assert.equal(isCheckboxChecked(CHECKBOX_ALWAYS, {}), true);

@@ -122,7 +122,14 @@ export function PlacementPreview({
       try {
         const bytes = await pdfFile.arrayBuffer();
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-        await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+        try {
+          pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+            "pdfjs-dist/legacy/build/pdf.worker.mjs",
+            import.meta.url,
+          ).toString();
+        } catch {
+          await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+        }
         const loadingTask = pdfjs.getDocument({
           data: new Uint8Array(bytes.slice(0)),
           useSystemFonts: true,
