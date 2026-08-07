@@ -11,9 +11,6 @@ export const metadata: Metadata = {
     follow: false,
     googleBot: { index: false, follow: false, noimageindex: true },
   },
-  alternates: {
-    canonical: null,
-  },
 };
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
