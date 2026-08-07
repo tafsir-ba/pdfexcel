@@ -1,5 +1,12 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { formatPlanPrice, resolveLivePlan } from "../../lib/live-pricing";
+
+export const metadata: Metadata = {
+  title: "Terms",
+  description: "Terms of service for PDF Batch paid access and acceptable use.",
+  alternates: { canonical: "/terms" },
+};
 
 export default async function TermsPage() {
   const plan = await resolveLivePlan();

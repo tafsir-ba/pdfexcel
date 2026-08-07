@@ -29,8 +29,8 @@ test("server-renders the PDF Batch product", async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = (await response.text()).replaceAll("<!-- -->", "");
-  assert.match(html, /<title>PDF Batch/i);
-  assert.match(html, /Batch-fill PDF forms from Excel or CSV\./);
+  assert.match(html, /<title>Batch Fill PDF Forms from Excel or CSV/i);
+  assert.match(html, /Upload a fillable PDF and an Excel or CSV file/);
   assert.match(html, /No Acrobat/);
   assert.match(html, /Generate 3 PDFs free/);
   assert.match(html, /Add your PDF form and spreadsheet/);
@@ -38,6 +38,8 @@ test("server-renders the PDF Batch product", async () => {
   assert.match(html, /Download the batch/);
   assert.match(html, /Each spreadsheet row becomes one filled PDF/);
   assert.match(html, /PDF Batch/);
+  assert.match(html, /application\/ld\+json/);
+  assert.match(html, /SoftwareApplication/);
   assert.doesNotMatch(html, /PDF Mail Merge/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
@@ -58,6 +60,42 @@ test("includes legal routes and removes starter preview assets", async () => {
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));
+  await access(new URL("../public/robots.txt", import.meta.url));
+  await access(new URL("../public/sitemap.xml", import.meta.url));
+  await access(new URL("../public/llms.txt", import.meta.url));
+});
+
+test("serves crawlability routes and high-intent landing pages", async () => {
+  const paths = [
+    "/robots.txt",
+    "/sitemap.xml",
+    "/fill-pdf-from-excel",
+    "/fill-pdf-from-csv",
+    "/bulk-fill-pdf-forms",
+    "/generate-certificates-from-excel",
+    "/mail-merge-pdf",
+    "/pricing",
+    "/security",
+    "/about",
+    "/contact",
+    "/changelog",
+  ];
+  for (const path of paths) {
+    const response = await render(path);
+    assert.equal(response.status, 200, path);
+    const body = await response.text();
+    if (path === "/robots.txt") {
+      assert.match(body, /Sitemap:\s*https:\/\/pdfbatch\.app\/sitemap\.xml/i);
+      assert.match(body, /OAI-SearchBot/i);
+      assert.match(body, /Disallow:\s*\/admin/i);
+    } else if (path === "/sitemap.xml") {
+      assert.match(body, /https:\/\/pdfbatch\.app\/mail-merge-pdf/);
+      assert.match(body, /https:\/\/pdfbatch\.app\/security/);
+    } else {
+      assert.match(body, /PDF Batch/i);
+      assert.match(body, /Start free preview|Open the tool|Try the free preview|See pricing/i);
+    }
+  }
 });
 
 test("admin login page is served for operators", async () => {

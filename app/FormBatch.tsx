@@ -2221,7 +2221,12 @@ export function FormBatch({ initialPricing }: { initialPricing?: LivePricing }) 
           Batch-fill PDF forms from a spreadsheet. Free preview stays in your browser; paid access syncs files and ZIP
           packs for re-download.
         </p>
-        <nav aria-label="Legal">
+        <nav aria-label="Site">
+          <Link href="/fill-pdf-from-excel">Excel</Link>
+          <Link href="/mail-merge-pdf">Mail merge</Link>
+          <Link href="/pricing">Pricing</Link>
+          <Link href="/security">Security</Link>
+          <Link href="/about">About</Link>
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
         </nav>

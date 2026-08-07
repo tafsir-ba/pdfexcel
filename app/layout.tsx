@@ -1,30 +1,57 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE, SITE_URL } from "../lib/site";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
-  const metadataBase = new URL(`${protocol}://${host}`);
+  const metadataBase = new URL(host.includes("pdfbatch.app") ? SITE_URL : `${protocol}://${host}`);
 
   return {
     metadataBase,
-    title: "PDF Batch — Fill PDF forms from Excel or CSV",
-    description:
-      "Batch-fill PDF forms from Excel or CSV. Free preview stays in your browser; paid access syncs templates and generated ZIPs to your account for re-download during the paid period.",
+    title: {
+      default: `Batch Fill PDF Forms from Excel or CSV | ${SITE_NAME}`,
+      template: `%s | ${SITE_NAME}`,
+    },
+    description: SITE_DESCRIPTION,
+    applicationName: SITE_NAME,
+    keywords: [
+      "batch fill PDF",
+      "PDF mail merge",
+      "fill PDF from Excel",
+      "fill PDF from CSV",
+      "bulk PDF forms",
+      "generate certificates from Excel",
+    ],
+    alternates: {
+      canonical: "/",
+    },
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: { index: true, follow: true },
+    },
     openGraph: {
-      title: "PDF Batch — Fill PDF forms from Excel or CSV",
-      description:
-        "One PDF form + one spreadsheet → one filled PDF per row. Paid accounts restore files and ZIPs across devices.",
+      title: `Batch Fill PDF Forms from Excel or CSV | ${SITE_NAME}`,
+      description: SITE_TAGLINE + ". Preview three PDFs free.",
       type: "website",
-      images: [{ url: "/og.png", width: 1717, height: 916, alt: "PDF Batch turns Excel or CSV rows into individual filled PDFs" }],
+      url: SITE_URL,
+      siteName: SITE_NAME,
+      images: [
+        {
+          url: "/og.png",
+          width: 1717,
+          height: 916,
+          alt: "PDF Batch turns Excel or CSV rows into individual filled PDFs",
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
-      title: "PDF Batch — Fill PDF forms from Excel or CSV",
-      description:
-        "One PDF form + one spreadsheet → one filled PDF per row. Restore paid files and batches on any device.",
+      title: `Batch Fill PDF Forms from Excel or CSV | ${SITE_NAME}`,
+      description: SITE_TAGLINE + ". Preview three PDFs free.",
       images: ["/og.png"],
     },
   };
