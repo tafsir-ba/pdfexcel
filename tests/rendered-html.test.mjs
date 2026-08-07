@@ -60,9 +60,9 @@ test("includes legal routes and removes starter preview assets", async () => {
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));
-  await access(new URL("../public/llms.txt", import.meta.url));
   await access(new URL("../app/robots.ts", import.meta.url));
   await access(new URL("../app/sitemap.ts", import.meta.url));
+  await access(new URL("../lib/llms-txt.ts", import.meta.url));
 });
 
 test("serves crawlability routes and high-intent landing pages", async () => {

@@ -1,4 +1,5 @@
-# PDF Batch
+/** Plain-text product brief for LLM / AI search crawlers at /llms.txt */
+export const LLMS_TXT = `# PDF Batch
 > The simplest way to batch-fill a PDF form from Excel or CSV.
 
 PDF Batch is a browser-based product at https://pdfbatch.app/.
@@ -32,3 +33,4 @@ Map columns to PDF fields, preview rows, then download one filled PDF per row as
 ## Optional
 - Sitemap: https://pdfbatch.app/sitemap.xml
 - Robots: https://pdfbatch.app/robots.txt
+`;
