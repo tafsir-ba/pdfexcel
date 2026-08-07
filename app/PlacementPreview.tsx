@@ -805,8 +805,15 @@ export function PlacementPreview({
                                 : placement.fontFamily === "noto"
                                   ? "Noto Sans, Arial, sans-serif"
                                   : "Helvetica, Arial, sans-serif",
-                          fontSize: `${Math.max(9, Math.min(16, placement.fontSize || 12))}px`,
+                          // Match PDF points × canvas scale so preview size ≈ download size.
+                          fontSize: `${Math.max(6, (placement.fontSize || 12) * scale)}px`,
                           fontWeight: placement.bold ? 700 : 400,
+                          justifyContent:
+                            placement.align === "center"
+                              ? "center"
+                              : placement.align === "right"
+                                ? "flex-end"
+                                : "flex-start",
                           textAlign: placement.align || "left",
                         }}
                       >

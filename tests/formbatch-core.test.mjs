@@ -12,8 +12,10 @@ import {
   CHECKBOX_ALWAYS,
   detectStaticPdfFields,
   isCheckboxChecked,
+  measureTextHeight,
   mergeSavedPlacements,
   normalizePageRotation,
+  placementTextOrigin,
   visualPageSize,
   visualToUserSpace,
   withoutRemovedFields,
@@ -548,6 +550,22 @@ test("visual page helpers map /Rotate 90 into landscape viewer space", () => {
   assert.deepEqual(visualToUserSpace(100, 50, 400, 200, 0), { x: 100, y: 50 });
 });
 
+test("placementTextOrigin centers glyphs inside the writing box", () => {
+  const origin = placementTextOrigin(
+    { x: 100, y: 200, width: 180, height: 28, align: "left" },
+    60,
+    14,
+  );
+  assert.equal(origin.x, 102);
+  assert.equal(origin.y, 200 + (28 - 14) / 2);
+  const centered = placementTextOrigin(
+    { x: 100, y: 200, width: 180, height: 28, align: "center" },
+    60,
+    14,
+  );
+  assert.ok(centered.x > origin.x);
+});
+
 test("printed text on a /Rotate 90 page is drawn upright in viewer space", async () => {
   const source = await PDFDocument.create();
   const template = source.addPage([400, 200]);
@@ -556,18 +574,19 @@ test("printed text on a /Rotate 90 page is drawn upright in viewer space", async
 
   const document = await PDFDocument.load(bytes);
   const font = await document.embedFont(StandardFonts.Helvetica);
+  const placement = { pageIndex: 0, x: 40, y: 120, width: 160, height: 18, fontSize: 14 };
   applyStaticPdfFields(
     document,
-    [
-      {
-        name: "Name",
-        type: "text",
-        placement: { pageIndex: 0, x: 40, y: 120, width: 160, height: 18, fontSize: 14 },
-      },
-    ],
+    [{ name: "Name", type: "text", placement }],
     { Name: "Name" },
     { Name: "ROBERT" },
     font,
+  );
+
+  const expected = placementTextOrigin(
+    placement,
+    font.widthOfTextAtSize("ROBERT", 14),
+    measureTextHeight(font, 14),
   );
 
   const filled = await document.save();
@@ -584,8 +603,8 @@ test("printed text on a /Rotate 90 page is drawn upright in viewer space", async
   assert.ok(item, "filled value should be present");
   const [vx, vyTop] = viewport.convertToViewportPoint(item.transform[4], item.transform[5]);
   const vy = viewport.height - vyTop;
-  assert.ok(Math.abs(vx - 40) < 1, `expected visual x≈40, got ${vx}`);
-  assert.ok(Math.abs(vy - 120) < 1, `expected visual y≈120, got ${vy}`);
+  assert.ok(Math.abs(vx - expected.x) < 1.5, `expected visual x≈${expected.x}, got ${vx}`);
+  assert.ok(Math.abs(vy - expected.y) < 1.5, `expected visual y≈${expected.y}, got ${vy}`);
   const xAxis = viewport.convertToViewportPoint(
     item.transform[4] + item.transform[0],
     item.transform[5] + item.transform[1],

@@ -213,6 +213,40 @@ function measureTextWidth(font: PDFFont, text: string, size: number) {
   }
 }
 
+/** Cap-height style metric so text can be vertically centered in a writing box. */
+export function measureTextHeight(font: PDFFont, size: number) {
+  if (typeof font.heightAtSize === "function") {
+    try {
+      return font.heightAtSize(size, { descender: false });
+    } catch {
+      /* fall through */
+    }
+  }
+  return size * 0.72;
+}
+
+/**
+ * Visual (preview) origin for drawText — same box math the overlay uses so
+ * download matches what the user positioned.
+ */
+export function placementTextOrigin(
+  placement: Pick<StaticPlacement, "x" | "y" | "width" | "height" | "align">,
+  textWidth: number,
+  textHeight: number,
+  padX = 2,
+): { x: number; y: number } {
+  const align = placement.align || "left";
+  const innerWidth = Math.max(0, placement.width - padX * 2);
+  const x =
+    align === "center"
+      ? placement.x + padX + Math.max(0, (innerWidth - textWidth) / 2)
+      : align === "right"
+        ? placement.x + Math.max(padX, placement.width - padX - textWidth)
+        : placement.x + padX;
+  const y = placement.y + Math.max(0, (placement.height - textHeight) / 2);
+  return { x, y };
+}
+
 export function applyStaticPdfFields(
   document: PDFDocument,
   fields: DetectedStaticField[],
@@ -259,11 +293,18 @@ export function applyStaticPdfFields(
         const mark = "X";
         const font = resolveFont(field.placement.fontFamily, mark, field.placement.bold);
         const markSize = field.placement.fontSize || Math.min(9, field.placement.height);
-        const at = toUser(field.placement.x, field.placement.y - 1);
+        const size = Math.min(markSize, field.placement.height);
+        const origin = placementTextOrigin(
+          field.placement,
+          measureTextWidth(font, mark, size),
+          measureTextHeight(font, size),
+          0,
+        );
+        const at = toUser(origin.x, origin.y);
         page.drawText(mark, {
           x: at.x,
           y: at.y,
-          size: Math.min(markSize, field.placement.height),
+          size,
           font,
           ...drawOpts,
         });
@@ -277,24 +318,19 @@ export function applyStaticPdfFields(
     const font = resolveFont(field.placement.fontFamily, value, field.placement.bold);
     let fontSize = field.placement.fontSize ?? Math.min(12, Math.max(8, field.placement.height - 2));
     const floor = Math.min(5, fontSize);
-    while (fontSize > floor && measureTextWidth(font, value, fontSize) > field.placement.width) {
+    while (fontSize > floor && measureTextWidth(font, value, fontSize) > field.placement.width - 4) {
       fontSize -= 0.5;
     }
     const textWidth = measureTextWidth(font, value, fontSize);
-    const align = field.placement.align || "left";
-    const visualX =
-      align === "center"
-        ? field.placement.x + Math.max(0, (field.placement.width - textWidth) / 2)
-        : align === "right"
-          ? field.placement.x + Math.max(0, field.placement.width - textWidth)
-          : field.placement.x;
-    const at = toUser(visualX, field.placement.y);
+    const textHeight = measureTextHeight(font, fontSize);
+    const origin = placementTextOrigin(field.placement, textWidth, textHeight);
+    const at = toUser(origin.x, origin.y);
     page.drawText(value, {
       x: at.x,
       y: at.y,
       size: fontSize,
       font,
-      maxWidth: field.placement.width,
+      maxWidth: Math.max(1, field.placement.width - 4),
       ...drawOpts,
     });
   }
