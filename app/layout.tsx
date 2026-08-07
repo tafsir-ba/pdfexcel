@@ -25,9 +25,6 @@ export async function generateMetadata(): Promise<Metadata> {
       "bulk PDF forms",
       "generate certificates from Excel",
     ],
-    alternates: {
-      canonical: "/",
-    },
     robots: {
       index: true,
       follow: true,

@@ -60,15 +60,16 @@ test("includes legal routes and removes starter preview assets", async () => {
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));
-  await access(new URL("../public/robots.txt", import.meta.url));
-  await access(new URL("../public/sitemap.xml", import.meta.url));
   await access(new URL("../public/llms.txt", import.meta.url));
+  await access(new URL("../app/robots.ts", import.meta.url));
+  await access(new URL("../app/sitemap.ts", import.meta.url));
 });
 
 test("serves crawlability routes and high-intent landing pages", async () => {
   const paths = [
     "/robots.txt",
     "/sitemap.xml",
+    "/llms.txt",
     "/fill-pdf-from-excel",
     "/fill-pdf-from-csv",
     "/bulk-fill-pdf-forms",
@@ -87,15 +88,30 @@ test("serves crawlability routes and high-intent landing pages", async () => {
     if (path === "/robots.txt") {
       assert.match(body, /Sitemap:\s*https:\/\/pdfbatch\.app\/sitemap\.xml/i);
       assert.match(body, /OAI-SearchBot/i);
+      assert.match(body, /Google-Extended/i);
       assert.match(body, /Disallow:\s*\/admin/i);
     } else if (path === "/sitemap.xml") {
       assert.match(body, /https:\/\/pdfbatch\.app\/mail-merge-pdf/);
       assert.match(body, /https:\/\/pdfbatch\.app\/security/);
+      assert.match(body, /<loc>https:\/\/pdfbatch\.app\/?<\/loc>|<loc>https:\/\/pdfbatch\.app<\/loc>/);
+    } else if (path === "/llms.txt") {
+      assert.match(response.headers.get("content-type") ?? "", /text\/plain/i);
+      assert.match(body, /PDF Batch/i);
+      assert.match(body, /sitemap\.xml/i);
     } else {
       assert.match(body, /PDF Batch/i);
       assert.match(body, /Start free preview|Open the tool|Try the free preview|See pricing/i);
     }
   }
+});
+
+test("admin routes are noindex and do not inherit homepage canonical", async () => {
+  const response = await render("/admin/login");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /noindex/i);
+  assert.match(html, /<title>[^<]*Admin/i);
+  assert.doesNotMatch(html, /rel="canonical" href="https:\/\/pdfbatch\.app\/"/);
 });
 
 test("admin login page is served for operators", async () => {
